@@ -1,0 +1,7 @@
+{
+    "name": "webservice/citas-medicas",
+    "type": "project",
+    "require": {
+        "slim/slim": "^4.0,slim/psr7:^1.0,php-di/php-di:^6.0,monolog/monolog:^2.0,firebase/php-jwt:^6.0,respect/validation:^2.0"
+    }
+}
