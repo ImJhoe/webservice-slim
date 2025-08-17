@@ -15,14 +15,18 @@ class ConsultaController {
 
             $response->getBody()->write(json_encode([
                 'success' => true,
-                'data' => $especialidades
+                'message' => 'Especialidades obtenidas correctamente',
+                'data' => $especialidades,
+                'total' => count($especialidades)
             ]));
             return $response->withHeader('Content-Type', 'application/json');
 
         } catch (\Exception $e) {
             $response->getBody()->write(json_encode([
                 'success' => false,
-                'message' => 'Error al obtener especialidades: ' . $e->getMessage()
+                'message' => 'Error al obtener especialidades',
+                'error' => $e->getMessage(),
+                'code' => 'DATABASE_ERROR'
             ]));
             return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
         }
@@ -35,7 +39,8 @@ class ConsultaController {
                         d.id_doctor,
                         CONCAT(u.nombres, ' ', u.apellidos) as nombre_completo,
                         e.nombre_especialidad,
-                        d.titulo_profesional
+                        d.titulo_profesional,
+                        u.correo
                     FROM doctores d
                     JOIN usuarios u ON d.id_usuario = u.id_usuario
                     JOIN especialidades e ON d.id_especialidad = e.id_especialidad
@@ -47,14 +52,18 @@ class ConsultaController {
 
             $response->getBody()->write(json_encode([
                 'success' => true,
-                'data' => $medicos
+                'message' => 'Médicos obtenidos correctamente',
+                'data' => $medicos,
+                'total' => count($medicos)
             ]));
             return $response->withHeader('Content-Type', 'application/json');
 
         } catch (\Exception $e) {
             $response->getBody()->write(json_encode([
                 'success' => false,
-                'message' => 'Error al obtener médicos: ' . $e->getMessage()
+                'message' => 'Error al obtener médicos',
+                'error' => $e->getMessage(),
+                'code' => 'DATABASE_ERROR'
             ]));
             return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
         }

@@ -1,19 +1,9 @@
-Options All -Indexes
+RewriteEngine On
 
-<Files .htaccess>
-order allow,deny
-deny from all
-</Files>
+# Redirigir todo a la carpeta public, removiendo el prefijo webservice-slim
+RewriteCond %{REQUEST_URI} ^/webservice-slim/(.*)$
+RewriteRule ^(.*)$ public/%1 [L]
 
-<IfModule mod_rewrite.c>
-  # Redirect to the public folder
-  RewriteEngine On
-  # RewriteBase /
-  RewriteRule ^$ public/ [L]
-  RewriteRule (.*) public/$1 [L]
-
-  # Redirect to HTTPS
-  # RewriteEngine On
-  # RewriteCond %{HTTPS} off
-  # RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
-</IfModule>
+# Si no hay webservice-slim en la URL, redirigir a public
+RewriteCond %{REQUEST_URI} !^/webservice-slim/public/
+RewriteRule ^(.*)$ public/$1 [L]
