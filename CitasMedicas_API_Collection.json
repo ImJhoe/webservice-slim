@@ -1,0 +1,1159 @@
+{
+	"info": {
+		"_postman_id": "citas-medicas-api-v1",
+		"name": "API Citas Médicas - Lista de Cotejo",
+		"description": "Colección completa para probar todos los endpoints del webservice de citas médicas según la lista de cotejo del cuarto nivel.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8081/webservice-slim",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "0. Sistema - Verificación",
+			"item": [
+				{
+					"name": "Verificar estado del sistema",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/",
+							"host": ["{{base_url}}"],
+							"path": [""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/health",
+							"host": ["{{base_url}}"],
+							"path": ["api", "health"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "1. Médicos - Lista Cotejo #1",
+			"item": [
+				{
+					"name": "Crear médico (VÁLIDO)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 201\", function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"",
+									"pm.test(\"Respuesta contiene success true\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.success).to.be.true;",
+									"});",
+									"",
+									"pm.test(\"Médico creado correctamente\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.data).to.have.property('id_medico');",
+									"    pm.expect(jsonData.data).to.have.property('cedula');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"nombres\": \"Juan Carlos\",\n    \"apellidos\": \"Pérez González\",\n    \"cedula\": \"1234567890\",\n    \"correo\": \"juan.perez@clinica.com\",\n    \"contrasena\": \"123456\",\n    \"id_especialidad\": 1,\n    \"titulo_profesional\": \"MSc. Cardiólogo\",\n    \"numero_licencia\": \"LIC-001-2024\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/medicos",
+							"host": ["{{base_url}}"],
+							"path": ["api", "medicos"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Crear médico (SIN NOMBRE - ERROR)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 400\", function () {",
+									"    pm.response.to.have.status(400);",
+									"});",
+									"",
+									"pm.test(\"Respuesta contiene errores de validación\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.success).to.be.false;",
+									"    pm.expect(jsonData.errores).to.be.an('array');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"apellidos\": \"Pérez González\",\n    \"cedula\": \"1234567891\",\n    \"correo\": \"juan2.perez@clinica.com\",\n    \"contrasena\": \"123456\",\n    \"id_especialidad\": 1\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/medicos",
+							"host": ["{{base_url}}"],
+							"path": ["api", "medicos"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Crear médico (SIN CÉDULA - ERROR)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 400\", function () {",
+									"    pm.response.to.have.status(400);",
+									"});",
+									"",
+									"pm.test(\"Error específico de cédula\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.errores).to.include('La cédula es requerida');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"nombres\": \"María\",\n    \"apellidos\": \"González\",\n    \"correo\": \"maria.gonzalez@clinica.com\",\n    \"contrasena\": \"123456\",\n    \"id_especialidad\": 2\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/medicos",
+							"host": ["{{base_url}}"],
+							"path": ["api", "medicos"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Crear médico (SIN ESPECIALIDAD - ERROR)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 400\", function () {",
+									"    pm.response.to.have.status(400);",
+									"});",
+									"",
+									"pm.test(\"Error específico de especialidad\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.errores).to.include('La especialidad es requerida');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"nombres\": \"Carlos\",\n    \"apellidos\": \"Rodríguez\",\n    \"cedula\": \"1234567892\",\n    \"correo\": \"carlos.rodriguez@clinica.com\",\n    \"contrasena\": \"123456\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/medicos",
+							"host": ["{{base_url}}"],
+							"path": ["api", "medicos"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Buscar médico por cédula (EXISTE)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Médico encontrado\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.success).to.be.true;",
+									"    pm.expect(jsonData.data).to.have.property('cedula');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/medicos/1234567890",
+							"host": ["{{base_url}}"],
+							"path": ["api", "medicos", "1234567890"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Buscar médico por cédula (NO EXISTE)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 404\", function () {",
+									"    pm.response.to.have.status(404);",
+									"});",
+									"",
+									"pm.test(\"Mensaje claro de no encontrado\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.success).to.be.false;",
+									"    pm.expect(jsonData.codigo_error).to.eql('MEDICO_NO_ENCONTRADO');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/medicos/9999999999",
+							"host": ["{{base_url}}"],
+							"path": ["api", "medicos", "9999999999"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "2. Horarios - Lista Cotejo #2 y #3",
+			"item": [
+				{
+					"name": "Asignar horario a médico (VÁLIDO)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 201\", function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"",
+									"pm.test(\"Horario asignado correctamente\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.success).to.be.true;",
+									"    pm.expect(jsonData.data).to.have.property('id_horario');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"id_medico\": 1,\n    \"id_sucursal\": 4,\n    \"dia_semana\": 1,\n    \"hora_inicio\": \"08:00:00\",\n    \"hora_fin\": \"12:00:00\",\n    \"duracion_cita\": 30\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/horarios",
+							"host": ["{{base_url}}"],
+							"path": ["api", "horarios"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Actualizar horario (PUT)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Horario actualizado correctamente\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.success).to.be.true;",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"id_sucursal\": 4,\n    \"dia_semana\": 1,\n    \"hora_inicio\": \"09:00:00\",\n    \"hora_fin\": \"13:00:00\",\n    \"duracion_cita\": 45\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/horarios/1",
+							"host": ["{{base_url}}"],
+							"path": ["api", "horarios", "1"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Consultar horarios por médico",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Horarios obtenidos correctamente\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.success).to.be.true;",
+									"    pm.expect(jsonData.data).to.be.an('array');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/horarios/medico/1",
+							"host": ["{{base_url}}"],
+							"path": ["api", "horarios", "medico", "1"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Obtener horarios disponibles",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Horarios disponibles obtenidos\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.success).to.be.true;",
+									"    pm.expect(jsonData.data).to.be.an('array');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/horarios/medico/1/disponibles?fecha=2025-08-25&id_sucursal=4",
+							"host": ["{{base_url}}"],
+							"path": ["api", "horarios", "medico", "1", "disponibles"],
+							"query": [
+								{
+									"key": "fecha",
+									"value": "2025-08-25"
+								},
+								{
+									"key": "id_sucursal",
+									"value": "4"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "3. Pacientes - Lista Cotejo #5 y #6",
+			"item": [
+				{
+					"name": "Crear paciente (VÁLIDO)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 201\", function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"",
+									"pm.test(\"Paciente creado correctamente\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.success).to.be.true;",
+									"    pm.expect(jsonData.data).to.have.property('id_paciente');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"nombres\": \"Ana María\",\n    \"apellidos\": \"López Martínez\",\n    \"cedula\": \"0987654321\",\n    \"correo\": \"ana.lopez@email.com\",\n    \"fecha_nacimiento\": \"1990-05-15\",\n    \"tipo_sangre\": \"O+\",\n    \"telefono\": \"0998765432\",\n    \"contacto_emergencia\": \"Pedro López\",\n    \"telefono_emergencia\": \"0987654321\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/pacientes",
+							"host": ["{{base_url}}"],
+							"path": ["api", "pacientes"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Buscar paciente por cédula (EXISTE)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Paciente encontrado\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.success).to.be.true;",
+									"    pm.expect(jsonData.data).to.have.property('cedula');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/pacientes/0987654321",
+							"host": ["{{base_url}}"],
+							"path": ["api", "pacientes", "0987654321"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Buscar paciente por cédula (NO EXISTE)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 404\", function () {",
+									"    pm.response.to.have.status(404);",
+									"});",
+									"",
+									"pm.test(\"Mensaje claro de no encontrado\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.success).to.be.false;",
+									"    pm.expect(jsonData.codigo_error).to.eql('PACIENTE_NO_ENCONTRADO');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/pacientes/9999999999",
+							"host": ["{{base_url}}"],
+							"path": ["api", "pacientes", "9999999999"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "4. Citas - Lista Cotejo #4, #7, #8, #9",
+			"item": [
+				{
+					"name": "Crear cita (VÁLIDA con validación de disponibilidad)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 201\", function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"",
+									"pm.test(\"Cita creada correctamente\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.success).to.be.true;",
+									"    pm.expect(jsonData.data).to.have.property('id_cita');",
+									"});",
+									"",
+									"// Guardar ID de cita para pruebas posteriores",
+									"if (pm.response.code === 201) {",
+									"    var jsonData = pm.response.json();",
+									"    pm.globals.set('cita_id', jsonData.data.id_cita);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"id_paciente\": 1,\n    \"id_medico\": 1,\n    \"id_sucursal\": 4,\n    \"fecha_hora\": \"2025-08-25 09:00:00\",\n    \"motivo\": \"Control de rutina cardiológica\",\n    \"tipo_cita\": \"presencial\",\n    \"notas\": \"Paciente con antecedentes de hipertensión\",\n    \"cedula_paciente\": \"0987654321\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/citas",
+							"host": ["{{base_url}}"],
+							"path": ["api", "citas"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Crear cita (HORARIO OCUPADO - ERROR)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 500 o 400\", function () {",
+									"    pm.expect([400, 500]).to.include(pm.response.code);",
+									"});",
+									"",
+									"pm.test(\"Error de horario ocupado\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.success).to.be.false;",
+									"    pm.expect(jsonData.error || jsonData.message).to.include('cita');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"id_paciente\": 1,\n    \"id_medico\": 1,\n    \"id_sucursal\": 4,\n    \"fecha_hora\": \"2025-08-25 09:00:00\",\n    \"motivo\": \"Segunda cita en mismo horario\",\n    \"tipo_cita\": \"presencial\",\n    \"cedula_paciente\": \"0987654321\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/citas",
+							"host": ["{{base_url}}"],
+							"path": ["api", "citas"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Consultar cita por número",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Cita encontrada con datos completos\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.success).to.be.true;",
+									"    pm.expect(jsonData.data).to.have.property('nombre_paciente');",
+									"    pm.expect(jsonData.data).to.have.property('nombre_doctor');",
+									"    pm.expect(jsonData.data).to.have.property('fecha_hora');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/citas/{{cita_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "citas", "{{cita_id}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Cambiar estado de cita (Confirmada)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Estado cambiado correctamente\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.success).to.be.true;",
+									"    pm.expect(jsonData.data.estado).to.eql('Confirmada');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"estado\": \"Confirmada\",\n    \"notas\": \"Cita confirmada por el paciente vía telefónica\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/citas/{{cita_id}}/estado",
+							"host": ["{{base_url}}"],
+							"path": ["api", "citas", "{{cita_id}}", "estado"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Cambiar estado de cita (Cancelada)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Estado cambiado a Cancelada\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.success).to.be.true;",
+									"    pm.expect(jsonData.data.estado).to.eql('Cancelada');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"estado\": \"Cancelada\",\n    \"notas\": \"Paciente no puede asistir por motivos personales\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/citas/{{cita_id}}/estado",
+							"host": ["{{base_url}}"],
+							"path": ["api", "citas", "{{cita_id}}", "estado"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "5. Consultas Generales",
+			"item": [
+				{
+					"name": "Obtener especialidades",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Lista de especialidades obtenida\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.success).to.be.true;",
+									"    pm.expect(jsonData.data).to.be.an('array');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/especialidades",
+							"host": ["{{base_url}}"],
+							"path": ["api", "especialidades"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Obtener médicos",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Lista de médicos obtenida\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.success).to.be.true;",
+									"    pm.expect(jsonData.data).to.be.an('array');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/medicos",
+							"host": ["{{base_url}}"],
+							"path": ["api", "medicos"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Obtener sucursales",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Lista de sucursales obtenida\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.success).to.be.true;",
+									"    pm.expect(jsonData.data).to.be.an('array');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/sucursales",
+							"host": ["{{base_url}}"],
+							"path": ["api", "sucursales"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "6. Casos de Error - Lista Cotejo #10",
+			"item": [
+				{
+					"name": "Formato fecha incorrecto",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 400\", function () {",
+									"    pm.response.to.have.status(400);",
+									"});",
+									"",
+									"pm.test(\"Error de formato de fecha\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.success).to.be.false;",
+									"    pm.expect(jsonData.errores || jsonData.message).to.include('formato');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"id_paciente\": 1,\n    \"id_medico\": 1,\n    \"id_sucursal\": 4,\n    \"fecha_hora\": \"2025/13/45 25:99:99\",\n    \"motivo\": \"Prueba de error\",\n    \"cedula_paciente\": \"0987654321\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/citas",
+							"host": ["{{base_url}}"],
+							"path": ["api", "citas"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Cédula inválida (formato)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 400\", function () {",
+									"    pm.response.to.have.status(400);",
+									"});",
+									"",
+									"pm.test(\"Error de formato de cédula\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.success).to.be.false;",
+									"    pm.expect(jsonData.errores).to.include('La cédula debe tener exactamente 10 dígitos');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"nombres\": \"Test\",\n    \"apellidos\": \"Usuario\",\n    \"cedula\": \"123\",\n    \"correo\": \"test@email.com\",\n    \"fecha_nacimiento\": \"1990-01-01\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/pacientes",
+							"host": ["{{base_url}}"],
+							"path": ["api", "pacientes"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Estado de cita inválido",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 400\", function () {",
+									"    pm.response.to.have.status(400);",
+									"});",
+									"",
+									"pm.test(\"Error de estado inválido\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.success).to.be.false;",
+									"    pm.expect(jsonData.errores).to.include('Estado inválido');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"estado\": \"EstadoInexistente\",\n    \"notas\": \"Prueba de error\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/citas/1/estado",
+							"host": ["{{base_url}}"],
+							"path": ["api", "citas", "1", "estado"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Endpoint inexistente",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code es 404\", function () {",
+									"    pm.response.to.have.status(404);",
+									"});",
+									"",
+									"pm.test(\"Error de endpoint no encontrado\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.success).to.be.false;",
+									"    pm.expect(jsonData.error_code).to.eql('ENDPOINT_NOT_FOUND');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/endpoint-inexistente",
+							"host": ["{{base_url}}"],
+							"path": ["api", "endpoint-inexistente"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "7. Flujo Completo - Integración",
+			"item": [
+				{
+					"name": "1. Crear paciente para flujo",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Paciente creado\", function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"",
+									"if (pm.response.code === 201) {",
+									"    var jsonData = pm.response.json();",
+									"    pm.globals.set('flujo_paciente_id', jsonData.data.id_paciente);",
+									"    pm.globals.set('flujo_cedula', '1122334455');",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"nombres\": \"Pedro\",\n    \"apellidos\": \"Ramírez\",\n    \"cedula\": \"1122334455\",\n    \"correo\": \"pedro.ramirez@email.com\",\n    \"fecha_nacimiento\": \"1985-03-20\",\n    \"tipo_sangre\": \"A+\",\n    \"telefono\": \"0912345678\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/pacientes",
+							"host": ["{{base_url}}"],
+							"path": ["api", "pacientes"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "2. Inmediatamente crear cita",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Cita creada inmediatamente después de crear paciente\", function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"",
+									"if (pm.response.code === 201) {",
+									"    var jsonData = pm.response.json();",
+									"    pm.globals.set('flujo_cita_id', jsonData.data.id_cita);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"id_paciente\": {{flujo_paciente_id}},\n    \"id_medico\": 1,\n    \"id_sucursal\": 4,\n    \"fecha_hora\": \"2025-08-26 10:00:00\",\n    \"motivo\": \"Primera consulta\",\n    \"tipo_cita\": \"presencial\",\n    \"cedula_paciente\": \"{{flujo_cedula}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/citas",
+							"host": ["{{base_url}}"],
+							"path": ["api", "citas"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "3. Verificar cita creada",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Cita verificada correctamente\", function () {",
+									"    pm.response.to.have.status(200);",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.data.nombre_paciente).to.include('Pedro');",
+									"    pm.expect(jsonData.data.cedula_paciente).to.eql('1122334455');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/citas/{{flujo_cita_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "citas", "{{flujo_cita_id}}"]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	]
+}

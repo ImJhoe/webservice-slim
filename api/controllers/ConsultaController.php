@@ -38,6 +38,7 @@ class ConsultaController {
             $sql = "SELECT 
                         d.id_doctor,
                         CONCAT(u.nombres, ' ', u.apellidos) as nombre_completo,
+                        u.cedula,
                         e.nombre_especialidad,
                         d.titulo_profesional,
                         u.correo
@@ -62,6 +63,31 @@ class ConsultaController {
             $response->getBody()->write(json_encode([
                 'success' => false,
                 'message' => 'Error al obtener médicos',
+                'error' => $e->getMessage(),
+                'code' => 'DATABASE_ERROR'
+            ]));
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+
+    public function obtenerSucursales(Request $request, Response $response): Response {
+        try {
+            $conexion = Database::getConnection();
+            $stmt = $conexion->query("SELECT * FROM sucursales WHERE activo = 1 ORDER BY nombre_sucursal");
+            $sucursales = $stmt->fetchAll();
+
+            $response->getBody()->write(json_encode([
+                'success' => true,
+                'message' => 'Sucursales obtenidas correctamente',
+                'data' => $sucursales,
+                'total' => count($sucursales)
+            ]));
+            return $response->withHeader('Content-Type', 'application/json');
+
+        } catch (\Exception $e) {
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'message' => 'Error al obtener sucursales',
                 'error' => $e->getMessage(),
                 'code' => 'DATABASE_ERROR'
             ]));
