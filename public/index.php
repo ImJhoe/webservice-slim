@@ -130,12 +130,14 @@ $app->get('/test-db', function (Request $request, Response $response) {
 $app->post('/auth/login', [AuthController::class, 'login']);
 $app->post('/auth/cambiar-password', [AuthController::class, 'cambiarPassword']);
 
-// ============ ENDPOINT PARA OBTENER ESPECIALIDADES ============
+// ============ ENDPOINT ESPECIALIDADES CORREGIDO ============
 $app->get('/api/especialidades', function (Request $request, Response $response) {
     try {
         $db = App\Config\Database::getConnection();
-
-        $stmt = $db->query("SELECT * FROM especialidades WHERE activo = 1 ORDER BY nombre_especialidad");
+        
+        // ✅ SIN FILTRO 'activo' porque no existe esa columna
+        $stmt = $db->prepare("SELECT * FROM especialidades ORDER BY nombre_especialidad");
+        $stmt->execute();
         $especialidades = $stmt->fetchAll();
 
         $response->getBody()->write(json_encode([
@@ -154,7 +156,6 @@ $app->get('/api/especialidades', function (Request $request, Response $response)
         return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
     }
 });
-
 // ============ ENDPOINT PARA OBTENER SUCURSALES ============
 $app->get('/api/sucursales', function (Request $request, Response $response) {
     try {
@@ -579,54 +580,120 @@ $app->post('/api/pacientes', function (Request $request, Response $response) {
     }
 });
 
-// ============ ENDPOINT PARA ASIGNAR HORARIOS ============
+// ============ ENDPOINT PARA ASIGNAR HORARIO INDIVIDUAL ============
 $app->post('/api/horarios', function (Request $request, Response $response) {
     try {
         $data = json_decode($request->getBody()->getContents(), true);
+        $db = App\Config\Database::getConnection();
 
-        if (empty($data['id_medico']) || empty($data['horarios'])) {
+        // Validaciones
+        $errores = [];
+        
+        if (empty($data['id_medico'])) {
+            $errores[] = 'El ID del médico es requerido';
+        }
+        
+        if (empty($data['id_sucursal'])) {
+            $errores[] = 'El ID de la sucursal es requerido';
+        }
+        
+        if (empty($data['dia_semana']) || $data['dia_semana'] < 1 || $data['dia_semana'] > 7) {
+            $errores[] = 'El día de la semana debe estar entre 1 (Lunes) y 7 (Domingo)';
+        }
+        
+        if (empty($data['hora_inicio'])) {
+            $errores[] = 'La hora de inicio es requerida';
+        }
+        
+        if (empty($data['hora_fin'])) {
+            $errores[] = 'La hora de fin es requerida';
+        }
+
+        if (!empty($errores)) {
             $response->getBody()->write(json_encode([
                 'success' => false,
-                'message' => 'ID del médico y horarios son requeridos'
+                'message' => 'Datos de validación fallidos',
+                'errores' => $errores
             ]));
             return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
         }
 
-        $db = App\Config\Database::getConnection();
-        $horariosCreados = 0;
+        // Verificar que no existe conflicto de horarios
+        $sqlConflicto = "SELECT COUNT(*) as conflictos FROM doctor_horarios 
+                        WHERE id_doctor = :id_doctor 
+                        AND id_sucursal = :id_sucursal 
+                        AND dia_semana = :dia_semana 
+                        AND (
+                            (:hora_inicio >= hora_inicio AND :hora_inicio < hora_fin) OR
+                            (:hora_fin > hora_inicio AND :hora_fin <= hora_fin) OR
+                            (:hora_inicio <= hora_inicio AND :hora_fin >= hora_fin)
+                        )
+                        AND activo = 1";
 
-        foreach ($data['horarios'] as $horario) {
-            $stmt = $db->prepare("
-                INSERT INTO horarios_medicos (id_doctor, id_sucursal, dia_semana, hora_inicio, hora_fin) 
-                VALUES (:id_doctor, :id_sucursal, :dia_semana, :hora_inicio, :hora_fin)
-            ");
+        $stmtConflicto = $db->prepare($sqlConflicto);
+        $stmtConflicto->execute([
+            ':id_doctor' => $data['id_medico'],
+            ':id_sucursal' => $data['id_sucursal'],
+            ':dia_semana' => $data['dia_semana'],
+            ':hora_inicio' => $data['hora_inicio'],
+            ':hora_fin' => $data['hora_fin']
+        ]);
 
-            $stmt->bindParam(':id_doctor', $data['id_medico']);
-            $stmt->bindParam(':id_sucursal', $horario['id_sucursal']);
-            $stmt->bindParam(':dia_semana', $horario['dia_semana']);
-            $stmt->bindParam(':hora_inicio', $horario['hora_inicio']);
-            $stmt->bindParam(':hora_fin', $horario['hora_fin']);
-
-            if ($stmt->execute()) {
-                $horariosCreados++;
-            }
+        $conflicto = $stmtConflicto->fetch();
+        
+        if ($conflicto['conflictos'] > 0) {
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'message' => 'Ya existe un horario que se superpone con el horario que intenta asignar',
+                'codigo_error' => 'HORARIO_CONFLICTO'
+            ]));
+            return $response->withStatus(409)->withHeader('Content-Type', 'application/json');
         }
 
-        $response->getBody()->write(json_encode([
-            'success' => true,
-            'message' => "Se asignaron $horariosCreados horarios exitosamente",
-            'data' => [
-                'horarios_creados' => $horariosCreados,
-                'total_enviados' => count($data['horarios'])
-            ]
-        ]));
+        // Insertar el horario
+        $sql = "INSERT INTO doctor_horarios (id_doctor, id_sucursal, dia_semana, hora_inicio, hora_fin, duracion_cita, activo) 
+                VALUES (:id_doctor, :id_sucursal, :dia_semana, :hora_inicio, :hora_fin, :duracion_cita, 1)";
 
-        return $response->withHeader('Content-Type', 'application/json');
+        $stmt = $db->prepare($sql);
+        $result = $stmt->execute([
+            ':id_doctor' => $data['id_medico'],
+            ':id_sucursal' => $data['id_sucursal'],
+            ':dia_semana' => $data['dia_semana'],
+            ':hora_inicio' => $data['hora_inicio'],
+            ':hora_fin' => $data['hora_fin'],
+            ':duracion_cita' => $data['duracion_cita'] ?? 30
+        ]);
+
+        if ($result) {
+            $idHorario = $db->lastInsertId();
+            
+            $response->getBody()->write(json_encode([
+                'success' => true,
+                'message' => 'Horario asignado exitosamente',
+                'data' => [
+                    'id_horario' => (int) $idHorario,
+                    'id_doctor' => (int) $data['id_medico'],
+                    'id_sucursal' => (int) $data['id_sucursal'],
+                    'dia_semana' => (int) $data['dia_semana'],
+                    'hora_inicio' => $data['hora_inicio'],
+                    'hora_fin' => $data['hora_fin'],
+                    'duracion_cita' => $data['duracion_cita'] ?? 30
+                ]
+            ]));
+            return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
+        } else {
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'message' => 'Error al insertar el horario en la base de datos'
+            ]));
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
 
     } catch (Exception $e) {
         $response->getBody()->write(json_encode([
             'success' => false,
-            'message' => 'Error interno del servidor: ' . $e->getMessage()
+            'message' => 'Error interno del servidor: ' . $e->getMessage(),
+            'codigo_error' => 'HORARIO_ASSIGNMENT_ERROR'
         ]));
         return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
     }
