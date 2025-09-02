@@ -181,12 +181,19 @@ $app->get('/api/sucursales', function (Request $request, Response $response) {
     }
 });
 
-// ============ ENDPOINT PARA REGISTRAR MÉDICOS ============
 $app->post('/api/medicos', function (Request $request, Response $response) {
     try {
         $data = json_decode($request->getBody()->getContents(), true);
+        error_log("=== REGISTRANDO MÉDICO ===");
+        error_log("Datos recibidos: " . json_encode($data, JSON_PRETTY_PRINT));
 
-        // Validaciones básicas
+        // 🔥 MOVER LA NORMALIZACIÓN AQUÍ AL INICIO
+        $nombres = $data['nombres'] ?? $data['nombre'] ?? '';
+        $apellidos = $data['apellidos'] ?? $data['apellido'] ?? '';  
+        $correo = $data['correo'] ?? $data['email'] ?? '';
+        $password = $data['password'] ?? $data['contrasena'] ?? '';
+
+        // Validaciones básicas usando variables normalizadas
         if (empty($data['cedula'])) {
             $response->getBody()->write(json_encode([
                 'success' => false,
@@ -195,7 +202,7 @@ $app->post('/api/medicos', function (Request $request, Response $response) {
             return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
         }
 
-        if (empty($data['nombre'])) {
+        if (empty($nombres)) {
             $response->getBody()->write(json_encode([
                 'success' => false,
                 'message' => 'El nombre es requerido'
@@ -203,7 +210,7 @@ $app->post('/api/medicos', function (Request $request, Response $response) {
             return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
         }
 
-        if (empty($data['apellido'])) {
+        if (empty($apellidos)) {
             $response->getBody()->write(json_encode([
                 'success' => false,
                 'message' => 'El apellido es requerido'
@@ -211,7 +218,7 @@ $app->post('/api/medicos', function (Request $request, Response $response) {
             return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
         }
 
-        if (empty($data['email'])) {
+        if (empty($correo)) {
             $response->getBody()->write(json_encode([
                 'success' => false,
                 'message' => 'El email es requerido'
@@ -219,7 +226,7 @@ $app->post('/api/medicos', function (Request $request, Response $response) {
             return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
         }
 
-        if (empty($data['password'])) {
+        if (empty($password)) {
             $response->getBody()->write(json_encode([
                 'success' => false,
                 'message' => 'La contraseña es requerida'
@@ -252,8 +259,8 @@ $app->post('/api/medicos', function (Request $request, Response $response) {
         }
 
         // Verificar si el email ya existe
-        $stmt = $db->prepare("SELECT correo FROM usuarios WHERE correo = :email");
-        $stmt->bindParam(':email', $data['email']);
+        $stmt = $db->prepare("SELECT correo FROM usuarios WHERE correo = :correo");
+        $stmt->bindParam(':correo', $correo); // 🔥 USAR VARIABLE NORMALIZADA
         $stmt->execute();
 
         if ($stmt->rowCount() > 0) {
@@ -279,10 +286,10 @@ $app->post('/api/medicos', function (Request $request, Response $response) {
         }
 
         // Hash de la contraseña
-        $hashedPassword = password_hash($data['password'], PASSWORD_DEFAULT);
+        $hashedPassword = password_hash($password, PASSWORD_DEFAULT); // 🔥 USAR VARIABLE NORMALIZADA
 
         // Generar username único
-        $username = strtolower(str_replace(' ', '.', $data['nombre'] . '.' . $data['apellido']));
+        $username = strtolower(str_replace(' ', '.', $nombres . '.' . $apellidos)); // 🔥 USAR VARIABLES NORMALIZADAS
 
         // Insertar usuario
         $stmt = $db->prepare("
@@ -292,9 +299,9 @@ $app->post('/api/medicos', function (Request $request, Response $response) {
 
         $stmt->bindParam(':cedula', $data['cedula']);
         $stmt->bindParam(':username', $username);
-        $stmt->bindParam(':nombres', $data['nombre']);
-        $stmt->bindParam(':apellidos', $data['apellido']);
-        $stmt->bindParam(':correo', $data['email']);
+        $stmt->bindParam(':nombres', $nombres);     // 🔥 USAR VARIABLES NORMALIZADAS
+        $stmt->bindParam(':apellidos', $apellidos); // 🔥 USAR VARIABLES NORMALIZADAS
+        $stmt->bindParam(':correo', $correo);       // 🔥 USAR VARIABLES NORMALIZADAS
         $stmt->bindParam(':password', $hashedPassword);
 
         if (!$stmt->execute()) {
@@ -318,17 +325,20 @@ $app->post('/api/medicos', function (Request $request, Response $response) {
 
         $doctorId = $db->lastInsertId();
 
+        error_log("✅ Médico registrado - ID Doctor: " . $doctorId . ", ID Usuario: " . $userId);
+
         // Respuesta exitosa
         $response->getBody()->write(json_encode([
             'success' => true,
             'message' => 'Médico registrado exitosamente',
             'data' => [
-                'id' => (int) $userId,
+                'id' => (int) $doctorId,
+                'id_usuario' => (int) $userId,
                 'id_doctor' => (int) $doctorId,
                 'cedula' => $data['cedula'],
-                'nombre' => $data['nombre'],
-                'apellido' => $data['apellido'],
-                'email' => $data['email'],
+                'nombres' => $nombres,
+                'apellidos' => $apellidos,
+                'correo' => $correo,
                 'username' => $username,
                 'especialidad' => $data['especialidad']
             ]
@@ -337,6 +347,7 @@ $app->post('/api/medicos', function (Request $request, Response $response) {
         return $response->withHeader('Content-Type', 'application/json');
 
     } catch (Exception $e) {
+        error_log("❌ Error registrando médico: " . $e->getMessage());
         $response->getBody()->write(json_encode([
             'success' => false,
             'message' => 'Error interno del servidor: ' . $e->getMessage()
@@ -344,7 +355,6 @@ $app->post('/api/medicos', function (Request $request, Response $response) {
         return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
     }
 });
-
 // ============ ENDPOINT PARA OBTENER MÉDICOS ============
 $app->get('/api/medicos', function (Request $request, Response $response) {
     try {
@@ -705,17 +715,26 @@ $app->get('/api/horarios/medico/{id_medico}', function (Request $request, Respon
         $idMedico = $args['id_medico'];
         $db = App\Config\Database::getConnection();
 
+        // 🔥 CORREGIDO: Usar doctor_horarios (no horarios_medicos)
         $stmt = $db->prepare("
             SELECT 
                 hm.*,
                 s.nombre_sucursal,
-                s.direccion
-            FROM horarios_medicos hm
+                s.direccion,
+                CASE hm.dia_semana
+                    WHEN 1 THEN 'Lunes'
+                    WHEN 2 THEN 'Martes'
+                    WHEN 3 THEN 'Miércoles'
+                    WHEN 4 THEN 'Jueves'
+                    WHEN 5 THEN 'Viernes'
+                    WHEN 6 THEN 'Sábado'
+                    WHEN 7 THEN 'Domingo'
+                END as nombre_dia
+            FROM doctor_horarios hm
             JOIN sucursales s ON hm.id_sucursal = s.id_sucursal
-            WHERE hm.id_doctor = :id_medico
-            ORDER BY 
-                FIELD(hm.dia_semana, 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'),
-                hm.hora_inicio
+            WHERE hm.id_doctor = :id_medico 
+            AND hm.activo = 1
+            ORDER BY hm.dia_semana, hm.hora_inicio
         ");
 
         $stmt->bindParam(':id_medico', $idMedico);
@@ -725,7 +744,8 @@ $app->get('/api/horarios/medico/{id_medico}', function (Request $request, Respon
         $response->getBody()->write(json_encode([
             'success' => true,
             'message' => 'Horarios obtenidos exitosamente',
-            'data' => $horarios
+            'data' => $horarios,
+            'total' => count($horarios)
         ]));
 
         return $response->withHeader('Content-Type', 'application/json');
@@ -962,6 +982,11 @@ $app->post('/api/citas/consultar', function (Request $request, Response $respons
         return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
     }
 });
+// ============ RUTAS DE ROLES (requieren autenticación) ============
+$app->group('/api/roles', function ($group) {
+    $group->get('/{roleId}/menus', \App\Controllers\RoleController::class . ':getMenusByRole');
+    $group->get('/{roleId}/permissions', \App\Controllers\RoleController::class . ':getRolePermissions');
+})->add(new AuthMiddleware());
 
 // ============ RUTAS PROTEGIDAS CON AUTENTICACIÓN ============
 
