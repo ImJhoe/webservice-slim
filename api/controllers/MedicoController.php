@@ -86,47 +86,78 @@ class MedicoController {
     }
     // Agregar este método a la clase MedicoController
 
-public function buscarPorCedula(Request $request, Response $response, array $args): Response {
-    try {
-        $cedula = $args['cedula'];
+ // ✅ AGREGAR: Método para buscar médico por cédula
+    public function buscarPorCedula(Request $request, Response $response, array $args): Response {
+        try {
+            $cedula = $args['cedula'];
 
-        if (empty($cedula)) {
+            if (empty($cedula)) {
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'message' => 'Cédula es requerida'
+                ]));
+                return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+            }
+
+            if (!v::digit()->length(10, 10)->validate($cedula)) {
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'message' => 'Formato de cédula inválido. Debe tener 10 dígitos'
+                ]));
+                return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+            }
+
+            $medicoModel = new Medico();
+            $medico = $medicoModel->buscarPorCedula($cedula);
+
+            if (!$medico) {
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'message' => 'Médico no encontrado'
+                ]));
+                return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+            }
+
+            $response->getBody()->write(json_encode([
+                'success' => true,
+                'message' => 'Médico encontrado',
+                'data' => $medico
+            ]));
+            return $response->withHeader('Content-Type', 'application/json');
+
+        } catch (\Exception $e) {
             $response->getBody()->write(json_encode([
                 'success' => false,
-                'message' => 'La cédula es requerida',
-                'codigo_error' => 'CEDULA_REQUERIDA'
+                'message' => 'Error interno del servidor al buscar médico',
+                'error' => $e->getMessage()
             ]));
-            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
         }
-
-        $medicoModel = new Medico();
-        $medico = $medicoModel->buscarPorCedula($cedula);
-
-        if (!$medico) {
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'message' => 'No se encontró ningún médico con la cédula proporcionada',
-                'codigo_error' => 'MEDICO_NO_ENCONTRADO'
-            ]));
-            return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
-        }
-
-        $response->getBody()->write(json_encode([
-            'success' => true,
-            'message' => 'Médico encontrado',
-            'data' => $medico
-        ]));
-        return $response->withHeader('Content-Type', 'application/json');
-
-    } catch (\Exception $e) {
-        $response->getBody()->write(json_encode([
-            'success' => false,
-            'message' => 'Error interno del servidor al buscar médico',
-            'error' => $e->getMessage(),
-            'codigo_error' => 'INTERNAL_SERVER_ERROR'
-        ]));
-        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
     }
-}
+// ✅ AGREGAR ESTE MÉTODO AL FINAL DE TU CLASE MedicoController
+    public function obtenerTodos(Request $request, Response $response): Response {
+        try {
+            error_log("=== OBTENIENDO MÉDICOS ===");
+            
+            $medicoModel = new Medico();
+            $medicos = $medicoModel->obtenerTodos();
+
+            $response->getBody()->write(json_encode([
+                'success' => true,
+                'message' => 'Médicos obtenidos exitosamente',
+                'data' => $medicos
+            ]));
+            return $response->withHeader('Content-Type', 'application/json');
+
+        } catch (\Exception $e) {
+            error_log("❌ Error en MedicoController::obtenerTodos: " . $e->getMessage());
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'message' => 'Error interno del servidor al obtener médicos',
+                'error' => $e->getMessage()
+            ]));
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
 }
 ?>

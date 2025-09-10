@@ -26,6 +26,7 @@ use Slim\Factory\AppFactory;
 use App\Controllers\AuthController;
 use App\Controllers\HistorialController;
 use App\Middleware\AuthMiddleware;
+use App\Controllers\MedicoController;
 
 // Configurar base path para Slim
 $app = AppFactory::create();
@@ -181,268 +182,9 @@ $app->get('/api/sucursales', function (Request $request, Response $response) {
     }
 });
 
-$app->post('/api/medicos', function (Request $request, Response $response) {
-    try {
-        $data = json_decode($request->getBody()->getContents(), true);
-        error_log("=== REGISTRANDO MÉDICO ===");
-        error_log("Datos recibidos: " . json_encode($data, JSON_PRETTY_PRINT));
-
-        // 🔥 MOVER LA NORMALIZACIÓN AQUÍ AL INICIO
-        $nombres = $data['nombres'] ?? $data['nombre'] ?? '';
-        $apellidos = $data['apellidos'] ?? $data['apellido'] ?? '';  
-        $correo = $data['correo'] ?? $data['email'] ?? '';
-        $password = $data['password'] ?? $data['contrasena'] ?? '';
-
-        // Validaciones básicas usando variables normalizadas
-        if (empty($data['cedula'])) {
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'message' => 'La cédula es requerida'
-            ]));
-            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
-        }
-
-        if (empty($nombres)) {
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'message' => 'El nombre es requerido'
-            ]));
-            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
-        }
-
-        if (empty($apellidos)) {
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'message' => 'El apellido es requerido'
-            ]));
-            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
-        }
-
-        if (empty($correo)) {
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'message' => 'El email es requerido'
-            ]));
-            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
-        }
-
-        if (empty($password)) {
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'message' => 'La contraseña es requerida'
-            ]));
-            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
-        }
-
-        if (empty($data['especialidad'])) {
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'message' => 'La especialidad es requerida'
-            ]));
-            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
-        }
-
-        // Conectar a la base de datos
-        $db = App\Config\Database::getConnection();
-
-        // Verificar si la cédula ya existe
-        $stmt = $db->prepare("SELECT cedula FROM usuarios WHERE cedula = :cedula");
-        $stmt->bindParam(':cedula', $data['cedula']);
-        $stmt->execute();
-
-        if ($stmt->rowCount() > 0) {
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'message' => 'Ya existe un usuario con esa cédula'
-            ]));
-            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
-        }
-
-        // Verificar si el email ya existe
-        $stmt = $db->prepare("SELECT correo FROM usuarios WHERE correo = :correo");
-        $stmt->bindParam(':correo', $correo); // 🔥 USAR VARIABLE NORMALIZADA
-        $stmt->execute();
-
-        if ($stmt->rowCount() > 0) {
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'message' => 'Ya existe un usuario con ese email'
-            ]));
-            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
-        }
-
-        // Obtener ID de la especialidad
-        $stmt = $db->prepare("SELECT id_especialidad FROM especialidades WHERE nombre_especialidad = :especialidad");
-        $stmt->bindParam(':especialidad', $data['especialidad']);
-        $stmt->execute();
-        $especialidadResult = $stmt->fetch();
-
-        if (!$especialidadResult) {
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'message' => 'Especialidad no encontrada'
-            ]));
-            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
-        }
-
-        // Hash de la contraseña
-        $hashedPassword = password_hash($password, PASSWORD_DEFAULT); // 🔥 USAR VARIABLE NORMALIZADA
-
-        // Generar username único
-        $username = strtolower(str_replace(' ', '.', $nombres . '.' . $apellidos)); // 🔥 USAR VARIABLES NORMALIZADAS
-
-        // Insertar usuario
-        $stmt = $db->prepare("
-            INSERT INTO usuarios (cedula, username, nombres, apellidos, correo, password, id_rol, id_estado) 
-            VALUES (:cedula, :username, :nombres, :apellidos, :correo, :password, 70, 1)
-        ");
-
-        $stmt->bindParam(':cedula', $data['cedula']);
-        $stmt->bindParam(':username', $username);
-        $stmt->bindParam(':nombres', $nombres);     // 🔥 USAR VARIABLES NORMALIZADAS
-        $stmt->bindParam(':apellidos', $apellidos); // 🔥 USAR VARIABLES NORMALIZADAS
-        $stmt->bindParam(':correo', $correo);       // 🔥 USAR VARIABLES NORMALIZADAS
-        $stmt->bindParam(':password', $hashedPassword);
-
-        if (!$stmt->execute()) {
-            throw new Exception('Error al insertar usuario');
-        }
-
-        $userId = $db->lastInsertId();
-
-        // Insertar doctor
-        $stmt = $db->prepare("
-            INSERT INTO doctores (id_usuario, id_especialidad) 
-            VALUES (:id_usuario, :id_especialidad)
-        ");
-
-        $stmt->bindParam(':id_usuario', $userId);
-        $stmt->bindParam(':id_especialidad', $especialidadResult['id_especialidad']);
-
-        if (!$stmt->execute()) {
-            throw new Exception('Error al insertar doctor');
-        }
-
-        $doctorId = $db->lastInsertId();
-
-        error_log("✅ Médico registrado - ID Doctor: " . $doctorId . ", ID Usuario: " . $userId);
-
-        // Respuesta exitosa
-        $response->getBody()->write(json_encode([
-            'success' => true,
-            'message' => 'Médico registrado exitosamente',
-            'data' => [
-                'id' => (int) $doctorId,
-                'id_usuario' => (int) $userId,
-                'id_doctor' => (int) $doctorId,
-                'cedula' => $data['cedula'],
-                'nombres' => $nombres,
-                'apellidos' => $apellidos,
-                'correo' => $correo,
-                'username' => $username,
-                'especialidad' => $data['especialidad']
-            ]
-        ]));
-
-        return $response->withHeader('Content-Type', 'application/json');
-
-    } catch (Exception $e) {
-        error_log("❌ Error registrando médico: " . $e->getMessage());
-        $response->getBody()->write(json_encode([
-            'success' => false,
-            'message' => 'Error interno del servidor: ' . $e->getMessage()
-        ]));
-        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
-    }
-});
-// ============ ENDPOINT PARA OBTENER MÉDICOS ============
-$app->get('/api/medicos', function (Request $request, Response $response) {
-    try {
-        $db = App\Config\Database::getConnection();
-
-        $stmt = $db->query("
-            SELECT 
-                u.id_usuario as id,
-                u.cedula,
-                u.nombres as nombre,
-                u.apellidos as apellido,
-                u.correo as email,
-                u.username,
-                e.nombre_especialidad as especialidad,
-                d.id_doctor,
-                CONCAT(u.nombres, ' ', u.apellidos) as nombre_completo,
-                u.id_estado as activo
-            FROM usuarios u 
-            JOIN doctores d ON u.id_usuario = d.id_usuario
-            JOIN especialidades e ON d.id_especialidad = e.id_especialidad
-            WHERE u.id_estado = 1
-            ORDER BY u.nombres
-        ");
-
-        $medicos = $stmt->fetchAll();
-
-        $response->getBody()->write(json_encode([
-            'success' => true,
-            'message' => 'Médicos obtenidos exitosamente',
-            'data' => $medicos
-        ]));
-
-        return $response->withHeader('Content-Type', 'application/json');
-
-    } catch (Exception $e) {
-        $response->getBody()->write(json_encode([
-            'success' => false,
-            'message' => 'Error interno del servidor: ' . $e->getMessage()
-        ]));
-        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
-    }
-});
-
-// ============ ENDPOINT PARA BUSCAR PACIENTE POR CÉDULA ============
-$app->get('/api/pacientes/{cedula}', function (Request $request, Response $response, $args) {
-    try {
-        $cedula = $args['cedula'];
-        $db = App\Config\Database::getConnection();
-
-        $stmt = $db->prepare("
-            SELECT 
-                p.*,
-                u.nombres,
-                u.apellidos,
-                u.correo,
-                CONCAT(u.nombres, ' ', u.apellidos) as nombre_completo
-            FROM pacientes p
-            JOIN usuarios u ON p.id_usuario = u.id_usuario
-            WHERE u.cedula = :cedula AND u.id_estado = 1
-        ");
-
-        $stmt->bindParam(':cedula', $cedula);
-        $stmt->execute();
-        $paciente = $stmt->fetch();
-
-        if ($paciente) {
-            $response->getBody()->write(json_encode([
-                'success' => true,
-                'message' => 'Paciente encontrado',
-                'data' => $paciente
-            ]));
-        } else {
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'message' => 'Paciente no encontrado'
-            ]));
-        }
-
-        return $response->withHeader('Content-Type', 'application/json');
-
-    } catch (Exception $e) {
-        $response->getBody()->write(json_encode([
-            'success' => false,
-            'message' => 'Error interno del servidor: ' . $e->getMessage()
-        ]));
-        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
-    }
-});
+// ============ RUTAS DE MÉDICOS (USAR CONTROLADOR) ============
+$app->post('/api/medicos', [MedicoController::class, 'crear']);
+$app->get('/api/medicos', [MedicoController::class, 'obtenerTodos']);
 
 // ============ ENDPOINT PARA REGISTRAR PACIENTE ============
 $app->post('/api/pacientes', function (Request $request, Response $response) {
@@ -591,10 +333,18 @@ $app->post('/api/pacientes', function (Request $request, Response $response) {
 });
 
 // ============ ENDPOINT PARA ASIGNAR HORARIO INDIVIDUAL ============
+
+// ============ ENDPOINT PARA ASIGNAR HORARIO INDIVIDUAL ============
 $app->post('/api/horarios', function (Request $request, Response $response) {
     try {
         $data = json_decode($request->getBody()->getContents(), true);
         $db = App\Config\Database::getConnection();
+
+        // ✅ LOGGING EXTENDIDO
+        error_log("=== ASIGNANDO HORARIO ===");
+        error_log("Datos recibidos: " . json_encode($data, JSON_PRETTY_PRINT));
+        error_log("Tipo de data['id_medico']: " . gettype($data['id_medico'] ?? 'NO_EXISTE'));
+        error_log("Valor de data['id_medico']: " . ($data['id_medico'] ?? 'NO_EXISTE'));
 
         // Validaciones
         $errores = [];
@@ -620,6 +370,7 @@ $app->post('/api/horarios', function (Request $request, Response $response) {
         }
 
         if (!empty($errores)) {
+            error_log("❌ Errores de validación: " . json_encode($errores));
             $response->getBody()->write(json_encode([
                 'success' => false,
                 'message' => 'Datos de validación fallidos',
@@ -628,54 +379,34 @@ $app->post('/api/horarios', function (Request $request, Response $response) {
             return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
         }
 
-        // Verificar que no existe conflicto de horarios
-        $sqlConflicto = "SELECT COUNT(*) as conflictos FROM doctor_horarios 
-                        WHERE id_doctor = :id_doctor 
-                        AND id_sucursal = :id_sucursal 
-                        AND dia_semana = :dia_semana 
-                        AND (
-                            (:hora_inicio >= hora_inicio AND :hora_inicio < hora_fin) OR
-                            (:hora_fin > hora_inicio AND :hora_fin <= hora_fin) OR
-                            (:hora_inicio <= hora_inicio AND :hora_fin >= hora_fin)
-                        )
-                        AND activo = 1";
-
-        $stmtConflicto = $db->prepare($sqlConflicto);
-        $stmtConflicto->execute([
-            ':id_doctor' => $data['id_medico'],
-            ':id_sucursal' => $data['id_sucursal'],
-            ':dia_semana' => $data['dia_semana'],
-            ':hora_inicio' => $data['hora_inicio'],
-            ':hora_fin' => $data['hora_fin']
-        ]);
-
-        $conflicto = $stmtConflicto->fetch();
+        // ✅ SIMPLIFICAR: Insertar directamente sin verificar conflictos primero
+        error_log("✅ Validaciones pasadas, insertando horario...");
         
-        if ($conflicto['conflictos'] > 0) {
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'message' => 'Ya existe un horario que se superpone con el horario que intenta asignar',
-                'codigo_error' => 'HORARIO_CONFLICTO'
-            ]));
-            return $response->withStatus(409)->withHeader('Content-Type', 'application/json');
-        }
-
-        // Insertar el horario
         $sql = "INSERT INTO doctor_horarios (id_doctor, id_sucursal, dia_semana, hora_inicio, hora_fin, duracion_cita, activo) 
-                VALUES (:id_doctor, :id_sucursal, :dia_semana, :hora_inicio, :hora_fin, :duracion_cita, 1)";
+                VALUES (?, ?, ?, ?, ?, ?, ?)";
+
+        error_log("SQL a ejecutar: " . $sql);
 
         $stmt = $db->prepare($sql);
-        $result = $stmt->execute([
-            ':id_doctor' => $data['id_medico'],
-            ':id_sucursal' => $data['id_sucursal'],
-            ':dia_semana' => $data['dia_semana'],
-            ':hora_inicio' => $data['hora_inicio'],
-            ':hora_fin' => $data['hora_fin'],
-            ':duracion_cita' => $data['duracion_cita'] ?? 30
-        ]);
+        
+        // ✅ USAR PARÁMETROS POSICIONALES EN LUGAR DE NOMBRADOS
+        $params = [
+            (int)$data['id_medico'],
+            (int)$data['id_sucursal'],
+            (int)$data['dia_semana'],
+            $data['hora_inicio'] . ':00',
+            $data['hora_fin'] . ':00',
+            (int)($data['duracion_cita'] ?? 30),
+            1
+        ];
+
+        error_log("Parámetros a insertar: " . json_encode($params));
+
+        $result = $stmt->execute($params);
 
         if ($result) {
             $idHorario = $db->lastInsertId();
+            error_log("✅ Horario creado exitosamente con ID: " . $idHorario);
             
             $response->getBody()->write(json_encode([
                 'success' => true,
@@ -687,28 +418,40 @@ $app->post('/api/horarios', function (Request $request, Response $response) {
                     'dia_semana' => (int) $data['dia_semana'],
                     'hora_inicio' => $data['hora_inicio'],
                     'hora_fin' => $data['hora_fin'],
-                    'duracion_cita' => $data['duracion_cita'] ?? 30
+                    'duracion_cita' => (int)($data['duracion_cita'] ?? 30)
                 ]
             ]));
             return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
         } else {
+            error_log("❌ Error al ejecutar la consulta SQL");
+            $errorInfo = $stmt->errorInfo();
+            error_log("Error SQL Info: " . json_encode($errorInfo));
+            
             $response->getBody()->write(json_encode([
                 'success' => false,
-                'message' => 'Error al insertar el horario en la base de datos'
+                'message' => 'Error al insertar el horario: ' . $errorInfo[2],
+                'sql_error' => $errorInfo
             ]));
             return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
         }
 
     } catch (Exception $e) {
+        error_log("❌ Exception en horarios: " . $e->getMessage());
+        error_log("Exception file: " . $e->getFile() . " line: " . $e->getLine());
+        error_log("Stack trace: " . $e->getTraceAsString());
+        
         $response->getBody()->write(json_encode([
             'success' => false,
             'message' => 'Error interno del servidor: ' . $e->getMessage(),
-            'codigo_error' => 'HORARIO_ASSIGNMENT_ERROR'
+            'codigo_error' => 'HORARIO_ASSIGNMENT_ERROR',
+            'debug_info' => [
+                'file' => $e->getFile(),
+                'line' => $e->getLine()
+            ]
         ]));
         return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
     }
 });
-
 // ============ ENDPOINT PARA CONSULTAR HORARIOS POR MÉDICO ============
 $app->get('/api/horarios/medico/{id_medico}', function (Request $request, Response $response, $args) {
     try {

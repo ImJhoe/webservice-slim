@@ -26,9 +26,9 @@ class Medico {
             $stmtUsuario->execute([
                 ':nombres' => $datos['nombres'],
                 ':apellidos' => $datos['apellidos'],
-                ':cedula' => (int)$datos['cedula'], // 👈 CONVERTIR A ENTERO
+                ':cedula' => (int)$datos['cedula'],
                 ':correo' => $datos['correo'],
-                ':password' => password_hash($datos['contrasena'], PASSWORD_DEFAULT), // 👈 USAR :password
+                ':password' => password_hash($datos['contrasena'], PASSWORD_DEFAULT),
                 ':sexo' => $datos['sexo'] ?? 'M',
                 ':nacionalidad' => $datos['nacionalidad'] ?? 'Ecuatoriana',
                 ':username' => $username
@@ -44,20 +44,21 @@ class Medico {
             $stmtMedico->execute([
                 ':id_usuario' => $idUsuario,
                 ':id_especialidad' => $datos['id_especialidad'],
-                ':titulo_profesional' => $datos['titulo_profesional']
+                ':titulo_profesional' => $datos['titulo_profesional'] ?? ''
             ]);
 
             $idMedico = $this->conn->lastInsertId();
 
             $this->conn->commit();
 
+            // ✅ CORREGIR: Convertir a enteros explícitamente
             return [
-                'id_medico' => $idMedico,
-                'id_usuario' => $idUsuario,
+                'id_medico' => (int)$idMedico,        // ← CONVERTIR A INT
+                'id_usuario' => (int)$idUsuario,      // ← CONVERTIR A INT
                 'nombres' => $datos['nombres'],
                 'apellidos' => $datos['apellidos'],
                 'cedula' => $datos['cedula'],
-                'especialidad' => $datos['id_especialidad'],
+                'especialidad' => (int)$datos['id_especialidad'], // ← CONVERTIR A INT
                 'username' => $username
             ];
 
@@ -81,6 +82,57 @@ class Medico {
             return $stmt->fetch();
         } catch (\Exception $e) {
             throw new \Exception("Error al buscar médico: " . $e->getMessage());
+        }
+    }
+    // ✅ AGREGAR ESTE MÉTODO AL FINAL DE TU CLASE Medico (antes del último })
+   public function obtenerTodos() {
+        try {
+            $sql = "SELECT 
+                        d.id_doctor,
+                        d.id_usuario,
+                        u.nombres,
+                        u.apellidos,
+                        u.cedula,
+                        u.correo,
+                        u.username,
+                        e.id_especialidad,
+                        e.nombre_especialidad,
+                        d.titulo_profesional,
+                        CONCAT(u.nombres, ' ', u.apellidos) as nombre_completo,
+                        u.id_estado as activo
+                    FROM doctores d
+                    JOIN usuarios u ON d.id_usuario = u.id_usuario
+                    JOIN especialidades e ON d.id_especialidad = e.id_especialidad
+                    WHERE u.id_estado = 1
+                    ORDER BY u.nombres";
+            
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute();
+            
+            $medicos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            // ✅ CORREGIR: Convertir tipos explícitamente
+            $medicosCorregidos = [];
+            foreach ($medicos as $medico) {
+                $medicosCorregidos[] = [
+                    'id_medico' => (int)$medico['id_doctor'],
+                    'id_usuario' => (int)$medico['id_usuario'],
+                    'nombres' => $medico['nombres'],
+                    'apellidos' => $medico['apellidos'],
+                    'cedula' => $medico['cedula'],
+                    'correo' => $medico['correo'],
+                    'username' => $medico['username'],
+                    'id_especialidad' => (int)$medico['id_especialidad'],
+                    'nombre_especialidad' => $medico['nombre_especialidad'],
+                    'titulo_profesional' => $medico['titulo_profesional'],
+                    'nombre_completo' => $medico['nombre_completo'],
+                    'activo' => (int)$medico['activo']
+                ];
+            }
+            
+            return $medicosCorregidos;
+        } catch (\Exception $e) {
+            throw new \Exception("Error al obtener médicos: " . $e->getMessage());
         }
     }
 }
