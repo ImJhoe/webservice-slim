@@ -333,8 +333,6 @@ $app->post('/api/pacientes', function (Request $request, Response $response) {
 });
 
 // ============ ENDPOINT PARA ASIGNAR HORARIO INDIVIDUAL ============
-
-// ============ ENDPOINT PARA ASIGNAR HORARIO INDIVIDUAL ============
 $app->post('/api/horarios', function (Request $request, Response $response) {
     try {
         $data = json_decode($request->getBody()->getContents(), true);
@@ -561,6 +559,94 @@ $app->get('/api/horarios/medico/{id_medico}/disponibles', function (Request $req
         ]));
 
         return $response->withHeader('Content-Type', 'application/json');
+
+    } catch (Exception $e) {
+        $response->getBody()->write(json_encode([
+            'success' => false,
+            'message' => 'Error interno del servidor: ' . $e->getMessage()
+        ]));
+        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+    }
+});
+// Actualizar horario
+$app->put('/api/horarios/{id_horario}', function (Request $request, Response $response, $args) {
+    try {
+        $idHorario = $args['id_horario'];
+        $data = json_decode($request->getBody()->getContents(), true);
+        $db = App\Config\Database::getConnection();
+
+        // Actualizar el horario en la tabla doctor_horarios
+        $stmt = $db->prepare("
+            UPDATE doctor_horarios 
+            SET dia_semana = :dia_semana,
+                hora_inicio = :hora_inicio,
+                hora_fin = :hora_fin,
+                duracion_cita = :duracion_cita,
+                id_sucursal = :id_sucursal
+            WHERE id_horario = :id_horario
+        ");
+
+        $params = [
+            ':id_horario' => $idHorario,
+            ':dia_semana' => $data['dia_semana'],
+            ':hora_inicio' => $data['hora_inicio'],
+            ':hora_fin' => $data['hora_fin'],
+            ':duracion_cita' => $data['duracion_cita'],
+            ':id_sucursal' => $data['id_sucursal']
+        ];
+
+        $result = $stmt->execute($params);
+
+        if ($result && $stmt->rowCount() > 0) {
+            $response->getBody()->write(json_encode([
+                'success' => true,
+                'message' => 'Horario actualizado exitosamente'
+            ]));
+            return $response->withHeader('Content-Type', 'application/json');
+        } else {
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'message' => 'Horario no encontrado o no se realizaron cambios'
+            ]));
+            return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+        }
+
+    } catch (Exception $e) {
+        $response->getBody()->write(json_encode([
+            'success' => false,
+            'message' => 'Error interno del servidor: ' . $e->getMessage()
+        ]));
+        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+    }
+});
+// Eliminar horario
+$app->delete('/api/horarios/{id_horario}', function (Request $request, Response $response, $args) {
+    try {
+        $idHorario = $args['id_horario'];
+        $db = App\Config\Database::getConnection();
+
+        // Soft delete: marcar como inactivo en lugar de eliminar
+        $stmt = $db->prepare("
+            UPDATE doctor_horarios 
+            SET activo = 0 
+            WHERE id_horario = :id_horario
+        ");
+
+        $result = $stmt->execute([':id_horario' => $idHorario]);
+
+        if ($result && $stmt->rowCount() > 0) {
+            $response->getBody()->write(json_encode([
+                'success' => true,
+                'message' => 'Horario eliminado exitosamente'
+            ]));
+            return $response->withHeader('Content-Type', 'application/json');
+        } else {
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'message' => 'Horario no encontrado'
+            ]));
+            return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+        }
 
     } catch (Exception $e) {
         $response->getBody()->write(json_encode([
