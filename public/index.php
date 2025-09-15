@@ -186,127 +186,116 @@ $app->get('/api/sucursales', function (Request $request, Response $response) {
 $app->post('/api/medicos', [MedicoController::class, 'crear']);
 $app->get('/api/medicos', [MedicoController::class, 'obtenerTodos']);
 
-// ============ ENDPOINT PARA REGISTRAR PACIENTE ============
+// ============ ENDPOINT PARA CREAR PACIENTES ============
+// ============ ENDPOINT PARA CREAR PACIENTES ============
 $app->post('/api/pacientes', function (Request $request, Response $response) {
     try {
         $data = json_decode($request->getBody()->getContents(), true);
+        
+        // Log para debug
+        error_log("=== CREANDO PACIENTE ===");
+        error_log("Datos recibidos: " . json_encode($data, JSON_PRETTY_PRINT));
+        
+        $db = App\Config\Database::getConnection();
+        $db->beginTransaction();
 
         // Validaciones básicas
-        if (empty($data['cedula'])) {
+        $errores = [];
+        if (empty($data['nombres'])) $errores[] = 'Los nombres son requeridos';
+        if (empty($data['apellidos'])) $errores[] = 'Los apellidos son requeridos';
+        if (empty($data['cedula'])) $errores[] = 'La cédula es requerida';
+        if (empty($data['correo'])) $errores[] = 'El correo es requerido';
+
+        // Validar formato de cédula
+        if (!empty($data['cedula']) && strlen($data['cedula']) != 10) {
+            $errores[] = 'La cédula debe tener exactamente 10 dígitos';
+        }
+
+        if (!empty($errores)) {
             $response->getBody()->write(json_encode([
                 'success' => false,
-                'message' => 'La cédula es requerida'
+                'message' => 'Errores de validación',
+                'errores' => $errores
             ]));
             return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
         }
 
-        if (empty($data['nombres'])) {
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'message' => 'Los nombres son requeridos'
-            ]));
-            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
-        }
-
-        if (empty($data['apellidos'])) {
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'message' => 'Los apellidos son requeridos'
-            ]));
-            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
-        }
-
-        $db = App\Config\Database::getConnection();
-
-        // Verificar si la cédula ya existe
-        $stmt = $db->prepare("SELECT cedula FROM usuarios WHERE cedula = :cedula");
+        // Verificar si ya existe la cédula
+        $stmt = $db->prepare("SELECT COUNT(*) as existe FROM usuarios WHERE cedula = :cedula");
         $stmt->bindParam(':cedula', $data['cedula']);
         $stmt->execute();
+        $existe = $stmt->fetch();
 
-        if ($stmt->rowCount() > 0) {
+        if ($existe['existe'] > 0) {
             $response->getBody()->write(json_encode([
                 'success' => false,
-                'message' => 'Ya existe un usuario con esa cédula'
+                'message' => 'Ya existe un usuario con esta cédula'
             ]));
             return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
         }
 
-        // Hash de la contraseña (usar cédula como contraseña inicial)
-        $hashedPassword = password_hash($data['cedula'], PASSWORD_DEFAULT);
+        // 1. Crear usuario (SIN telefono - va en tabla pacientes)
+        $sqlUsuario = "INSERT INTO usuarios (
+            nombres, apellidos, cedula, correo, password, 
+            id_rol, id_estado, sexo, nacionalidad, username
+        ) VALUES (
+            :nombres, :apellidos, :cedula, :correo, :password,
+            71, 1, :sexo, :nacionalidad, :username
+        )";
 
-        // Generar username
-        $username = $data['cedula'];
+        // Generar username único
+        $username = strtolower(str_replace(' ', '.', $data['nombres'])) . '.' . 
+                   strtolower(str_replace(' ', '.', $data['apellidos'])) . '.paciente';
 
-        // Insertar usuario
-        $stmt = $db->prepare("
-            INSERT INTO usuarios (cedula, username, nombres, apellidos, sexo, nacionalidad, correo, password, id_rol, id_estado) 
-            VALUES (:cedula, :username, :nombres, :apellidos, :sexo, :nacionalidad, :correo, :password, 71, 1)
-        ");
-
-        $stmt->bindParam(':cedula', $data['cedula']);
-        $stmt->bindParam(':username', $username);
-        $stmt->bindParam(':nombres', $data['nombres']);
-        $stmt->bindParam(':apellidos', $data['apellidos']);
-        // ✅ CORRECTO:
-        $sexo = $data['sexo'] ?? 'No especificado';
-        $nacionalidad = $data['nacionalidad'] ?? 'Ecuatoriana';
-        $correo = $data['correo'] ?? '';
-        $telefono = $data['telefono'] ?? '';
-        $fechaNacimiento = $data['fecha_nacimiento'] ?? null;
-        $tipoSangre = $data['tipo_sangre'] ?? '';
-        $alergias = $data['alergias'] ?? '';
-        $antecedentesMedicos = $data['antecedentes_medicos'] ?? '';
-        $contactoEmergencia = $data['contacto_emergencia'] ?? '';
-        $telefonoEmergencia = $data['telefono_emergencia'] ?? '';
-        $numeroSeguro = $data['numero_seguro'] ?? '';
-
-        $stmt->bindParam(':sexo', $sexo);
-        $stmt->bindParam(':nacionalidad', $nacionalidad);
-        $stmt->bindParam(':correo', $correo);
-        $stmt->bindParam(':telefono', $telefono);
-        $stmt->bindParam(':fecha_nacimiento', $fechaNacimiento);
-        $stmt->bindParam(':tipo_sangre', $tipoSangre);
-        $stmt->bindParam(':alergias', $alergias);
-        $stmt->bindParam(':antecedentes_medicos', $antecedentesMedicos);
-        $stmt->bindParam(':contacto_emergencia', $contactoEmergencia);
-        $stmt->bindParam(':telefono_emergencia', $telefonoEmergencia);
-        $stmt->bindParam(':numero_seguro', $numeroSeguro);
-
-        if (!$stmt->execute()) {
-            throw new Exception('Error al insertar usuario');
-        }
+        $stmtUsuario = $db->prepare($sqlUsuario);
+        $stmtUsuario->execute([
+            ':nombres' => $data['nombres'],
+            ':apellidos' => $data['apellidos'],
+            ':cedula' => $data['cedula'], // Mantener como string
+            ':correo' => $data['correo'],
+            ':password' => password_hash($data['contrasena'] ?? '123456', PASSWORD_DEFAULT),
+            ':sexo' => $data['sexo'] ?? 'M',
+            ':nacionalidad' => $data['nacionalidad'] ?? 'Ecuatoriana',
+            ':username' => $username
+        ]);
 
         $userId = $db->lastInsertId();
 
-        // Insertar paciente
-        $stmt = $db->prepare("
-            INSERT INTO pacientes (
-                id_usuario, telefono, fecha_nacimiento, tipo_sangre, 
-                alergias, antecedentes_medicos, contacto_emergencia, 
-                telefono_emergencia, numero_seguro
-            ) VALUES (
-                :id_usuario, :telefono, :fecha_nacimiento, :tipo_sangre,
-                :alergias, :antecedentes_medicos, :contacto_emergencia,
-                :telefono_emergencia, :numero_seguro
-            )
-        ");
+        // 2. Crear paciente
+        $sqlPaciente = "INSERT INTO pacientes (
+            id_usuario, telefono, fecha_nacimiento, tipo_sangre, 
+            alergias, antecedentes_medicos, contacto_emergencia, 
+            telefono_emergencia, numero_seguro
+        ) VALUES (
+            :id_usuario, :telefono, :fecha_nacimiento, :tipo_sangre,
+            :alergias, :antecedentes_medicos, :contacto_emergencia,
+            :telefono_emergencia, :numero_seguro
+        )";
 
-        // POR:
-        $stmt->bindValue(':id_usuario', $userId);
-        $stmt->bindValue(':telefono', $data['telefono'] ?? '');
-        $stmt->bindValue(':fecha_nacimiento', $data['fecha_nacimiento'] ?? null);
-        $stmt->bindValue(':tipo_sangre', $data['tipo_sangre'] ?? '');
-        $stmt->bindValue(':alergias', $data['alergias'] ?? '');
-        $stmt->bindValue(':antecedentes_medicos', $data['antecedentes_medicos'] ?? '');
-        $stmt->bindValue(':contacto_emergencia', $data['contacto_emergencia'] ?? '');
-        $stmt->bindValue(':telefono_emergencia', $data['telefono_emergencia'] ?? '');
-        $stmt->bindValue(':numero_seguro', $data['numero_seguro'] ?? '');
-
-        if (!$stmt->execute()) {
-            throw new Exception('Error al insertar paciente');
-        }
+        $stmtPaciente = $db->prepare($sqlPaciente);
+        $stmtPaciente->execute([
+            ':id_usuario' => $userId,
+            ':telefono' => $data['telefono'] ?? '',
+            ':fecha_nacimiento' => $data['fecha_nacimiento'] ?? null,
+            ':tipo_sangre' => $data['tipo_sangre'] ?? '',
+            ':alergias' => $data['alergias'] ?? '',
+            ':antecedentes_medicos' => $data['antecedentes_medicos'] ?? '',
+            ':contacto_emergencia' => $data['contacto_emergencia'] ?? '',
+            ':telefono_emergencia' => $data['telefono_emergencia'] ?? '',
+            ':numero_seguro' => $data['numero_seguro'] ?? ''
+        ]);
 
         $pacienteId = $db->lastInsertId();
+
+        // 3. Crear historial clínico
+        $sqlHistorial = "INSERT INTO historiales_clinicos (id_paciente, fecha_creacion, ultima_actualizacion) 
+                        VALUES (:id_paciente, NOW(), NOW())";
+        $stmtHistorial = $db->prepare($sqlHistorial);
+        $stmtHistorial->execute([':id_paciente' => $pacienteId]);
+
+        $db->commit();
+
+        error_log("✅ Paciente creado exitosamente - ID: $pacienteId");
 
         $response->getBody()->write(json_encode([
             'success' => true,
@@ -317,13 +306,20 @@ $app->post('/api/pacientes', function (Request $request, Response $response) {
                 'cedula' => $data['cedula'],
                 'nombres' => $data['nombres'],
                 'apellidos' => $data['apellidos'],
-                'nombre_completo' => $data['nombres'] . ' ' . $data['apellidos']
+                'nombre_completo' => $data['nombres'] . ' ' . $data['apellidos'],
+                'username' => $username
             ]
         ]));
 
-        return $response->withHeader('Content-Type', 'application/json');
+        return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
 
     } catch (Exception $e) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+        
+        error_log("❌ Error creando paciente: " . $e->getMessage());
+        
         $response->getBody()->write(json_encode([
             'success' => false,
             'message' => 'Error interno del servidor: ' . $e->getMessage()
@@ -331,7 +327,6 @@ $app->post('/api/pacientes', function (Request $request, Response $response) {
         return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
     }
 });
-
 // ============ ENDPOINT PARA ASIGNAR HORARIO INDIVIDUAL ============
 $app->post('/api/horarios', function (Request $request, Response $response) {
     try {
@@ -500,121 +495,113 @@ $app->get('/api/horarios/medico/{id_medico}', function (Request $request, Respon
     }
 });
 
-// ============ ENDPOINT PARA HORARIOS DISPONIBLES ============
+// ============ ENDPOINT PARA HORARIOS DISPONIBLES (CORREGIDO) ============
 $app->get('/api/horarios/medico/{id_medico}/disponibles', function (Request $request, Response $response, $args) {
     try {
         $idMedico = $args['id_medico'];
         $fecha = $request->getQueryParams()['fecha'] ?? date('Y-m-d');
-        $idSucursal = $request->getQueryParams()['sucursal'] ?? 1;
+        $idSucursal = $request->getQueryParams()['id_sucursal'] ?? null;
+
+        error_log("=== BUSCANDO HORARIOS DISPONIBLES ===");
+        error_log("ID Médico: " . $idMedico);
+        error_log("Fecha: " . $fecha);
+        error_log("ID Sucursal: " . ($idSucursal ?? 'no especificada'));
 
         $db = App\Config\Database::getConnection();
 
-        // Obtener día de la semana en español
-        $diaSemana = [
-            'Monday' => 'Lunes',
-            'Tuesday' => 'Martes',
-            'Wednesday' => 'Miércoles',
-            'Thursday' => 'Jueves',
-            'Friday' => 'Viernes',
-            'Saturday' => 'Sábado',
-            'Sunday' => 'Domingo'
-        ][date('l', strtotime($fecha))];
+        // Obtener día de la semana (1=lunes, 7=domingo)
+        $diaSemana = date('N', strtotime($fecha));
+        error_log("Día de la semana: " . $diaSemana);
 
-        $stmt = $db->prepare("
-            SELECT hora_inicio, hora_fin
-            FROM horarios_medicos 
-            WHERE id_doctor = :id_medico 
-            AND id_sucursal = :id_sucursal 
-            AND dia_semana = :dia_semana
-        ");
+        // Buscar horarios del médico para ese día
+        $sql = "SELECT * FROM doctor_horarios 
+                WHERE id_doctor = :id_doctor 
+                AND dia_semana = :dia_semana 
+                AND activo = 1";
 
-        $stmt->bindParam(':id_medico', $idMedico);
-        $stmt->bindParam(':id_sucursal', $idSucursal);
-        $stmt->bindParam(':dia_semana', $diaSemana);
-        $stmt->execute();
-        $horario = $stmt->fetch();
+        $params = [
+            ':id_doctor' => $idMedico,
+            ':dia_semana' => $diaSemana
+        ];
 
-        if (!$horario) {
+        if ($idSucursal) {
+            $sql .= " AND id_sucursal = :id_sucursal";
+            $params[':id_sucursal'] = $idSucursal;
+        }
+
+        $sql .= " ORDER BY hora_inicio";
+
+        error_log("SQL: " . $sql);
+        error_log("Parámetros: " . json_encode($params));
+
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        $horarios = $stmt->fetchAll();
+
+        error_log("Horarios encontrados: " . count($horarios));
+
+        if (empty($horarios)) {
             $response->getBody()->write(json_encode([
                 'success' => false,
-                'message' => 'El médico no tiene horarios asignados para este día'
+                'message' => 'El médico no tiene horarios asignados para este día',
+                'codigo_error' => 'SIN_HORARIOS',
+                'data' => [],
+                'debug_info' => [
+                    'medico_id' => $idMedico,
+                    'fecha' => $fecha,
+                    'dia_semana' => $diaSemana,
+                    'sucursal_id' => $idSucursal
+                ]
             ]));
-            return $response->withHeader('Content-Type', 'application/json');
+            return $response->withStatus(200)->withHeader('Content-Type', 'application/json');
         }
 
-        // Generar horarios cada 30 minutos
         $horariosDisponibles = [];
-        $inicio = strtotime($horario['hora_inicio']);
-        $fin = strtotime($horario['hora_fin']);
 
-        while ($inicio < $fin) {
-            $horariosDisponibles[] = date('H:i', $inicio);
-            $inicio += 1800; // 30 minutos
+        foreach ($horarios as $horario) {
+            $horaInicio = $horario['hora_inicio'];
+            $horaFin = $horario['hora_fin'];
+            $duracionCita = $horario['duracion_cita'] ?? 30;
+
+            error_log("Procesando horario: {$horaInicio} - {$horaFin}");
+
+            // Generar slots de tiempo
+            $inicio = strtotime($fecha . ' ' . $horaInicio);
+            $fin = strtotime($fecha . ' ' . $horaFin);
+
+            while ($inicio < $fin) {
+                $horarioSlot = [
+                    'hora' => date('H:i', $inicio),
+                    'fecha_hora' => $fecha . ' ' . date('H:i:s', $inicio),
+                    'id_sucursal' => (int)$horario['id_sucursal'], // ✅ INCLUIR ID_SUCURSAL
+                    'disponible' => true
+                ];
+                
+                $horariosDisponibles[] = $horarioSlot;
+                $inicio += ($duracionCita * 60); // Convertir minutos a segundos
+            }
         }
+
+        error_log("Total slots generados: " . count($horariosDisponibles));
 
         $response->getBody()->write(json_encode([
             'success' => true,
             'message' => 'Horarios disponibles obtenidos exitosamente',
-            'data' => $horariosDisponibles
+            'data' => $horariosDisponibles,
+            'total_slots' => count($horariosDisponibles),
+            'fecha' => $fecha,
+            'medico_id' => $idMedico
         ]));
 
-        return $response->withHeader('Content-Type', 'application/json');
+        return $response->withStatus(200)->withHeader('Content-Type', 'application/json');
 
     } catch (Exception $e) {
+        error_log("❌ Error en horarios disponibles: " . $e->getMessage());
+        
         $response->getBody()->write(json_encode([
             'success' => false,
-            'message' => 'Error interno del servidor: ' . $e->getMessage()
-        ]));
-        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
-    }
-});
-// Actualizar horario
-$app->put('/api/horarios/{id_horario}', function (Request $request, Response $response, $args) {
-    try {
-        $idHorario = $args['id_horario'];
-        $data = json_decode($request->getBody()->getContents(), true);
-        $db = App\Config\Database::getConnection();
-
-        // Actualizar el horario en la tabla doctor_horarios
-        $stmt = $db->prepare("
-            UPDATE doctor_horarios 
-            SET dia_semana = :dia_semana,
-                hora_inicio = :hora_inicio,
-                hora_fin = :hora_fin,
-                duracion_cita = :duracion_cita,
-                id_sucursal = :id_sucursal
-            WHERE id_horario = :id_horario
-        ");
-
-        $params = [
-            ':id_horario' => $idHorario,
-            ':dia_semana' => $data['dia_semana'],
-            ':hora_inicio' => $data['hora_inicio'],
-            ':hora_fin' => $data['hora_fin'],
-            ':duracion_cita' => $data['duracion_cita'],
-            ':id_sucursal' => $data['id_sucursal']
-        ];
-
-        $result = $stmt->execute($params);
-
-        if ($result && $stmt->rowCount() > 0) {
-            $response->getBody()->write(json_encode([
-                'success' => true,
-                'message' => 'Horario actualizado exitosamente'
-            ]));
-            return $response->withHeader('Content-Type', 'application/json');
-        } else {
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'message' => 'Horario no encontrado o no se realizaron cambios'
-            ]));
-            return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
-        }
-
-    } catch (Exception $e) {
-        $response->getBody()->write(json_encode([
-            'success' => false,
-            'message' => 'Error interno del servidor: ' . $e->getMessage()
+            'message' => 'Error interno del servidor: ' . $e->getMessage(),
+            'codigo_error' => 'ERROR_INTERNO'
         ]));
         return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
     }
@@ -682,7 +669,7 @@ $app->post('/api/citas', function (Request $request, Response $response) {
            WHERE id_doctor = :id_doctor 
            AND DATE(fecha_hora) = DATE(:fecha_hora) 
            AND TIME(fecha_hora) = TIME(:fecha_hora)
-           AND estado_cita NOT IN ('Cancelada', 'Completada')
+           AND estado NOT IN ('Cancelada', 'Completada')
        ");
 
         $stmt->bindParam(':id_doctor', $data['id_doctor']);
@@ -700,12 +687,12 @@ $app->post('/api/citas', function (Request $request, Response $response) {
         // Insertar la cita
         $stmt = $db->prepare("
            INSERT INTO citas (
-               id_paciente, id_doctor, id_sucursal, id_tipo_cita, 
-               fecha_hora, motivo, tipo_cita, estado_cita, notas, enlace_virtual
-           ) VALUES (
-               :id_paciente, :id_doctor, :id_sucursal, :id_tipo_cita,
-               :fecha_hora, :motivo, :tipo_cita, 'Confirmada', :notas, :enlace_virtual
-           )
+    id_paciente, id_doctor, id_sucursal, id_tipo_cita, 
+    fecha_hora, motivo, tipo_cita, estado, notas, enlace_virtual
+) VALUES (
+    :id_paciente, :id_doctor, :id_sucursal, :id_tipo_cita,
+    :fecha_hora, :motivo, :tipo_cita, 'Confirmada', :notas, :enlace_virtual
+)
        ");
 
         $stmt->bindParam(':id_paciente', $data['id_paciente']);
@@ -743,6 +730,108 @@ $app->post('/api/citas', function (Request $request, Response $response) {
         $response->getBody()->write(json_encode([
             'success' => false,
             'message' => 'Error interno del servidor: ' . $e->getMessage()
+        ]));
+        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+    }
+});
+// ============ ENDPOINT PARA BUSCAR PACIENTE POR CÉDULA ============
+$app->get('/api/pacientes/{cedula}', function (Request $request, Response $response, array $args) {
+    try {
+        $cedula = $args['cedula'];
+        
+        // Log para debug
+        error_log("=== BUSCANDO PACIENTE ===");
+        error_log("Cédula recibida: " . $cedula);
+        
+        $db = App\Config\Database::getConnection();
+
+        // Buscar paciente con JOIN entre usuarios y pacientes
+        $sql = "SELECT 
+                    p.id_paciente,
+                    p.id_usuario,
+                    p.telefono,
+                    p.fecha_nacimiento,
+                    p.tipo_sangre,
+                    p.alergias,
+                    p.antecedentes_medicos,
+                    p.contacto_emergencia,
+                    p.telefono_emergencia,
+                    p.numero_seguro,
+                    u.nombres,
+                    u.apellidos,
+                    u.cedula,
+                    u.correo,
+                    u.sexo,
+                    u.nacionalidad,
+                    CONCAT(u.nombres, ' ', u.apellidos) as nombre_completo
+                FROM pacientes p
+                JOIN usuarios u ON p.id_usuario = u.id_usuario
+                WHERE u.cedula = :cedula 
+                AND u.id_estado = 1";
+        
+        $stmt = $db->prepare($sql);
+        $stmt->execute([':cedula' => $cedula]); // Buscar como string
+        $paciente = $stmt->fetch();
+
+        if ($paciente) {
+            error_log("✅ Paciente encontrado: " . $paciente['nombre_completo']);
+            
+            // Convertir fecha de nacimiento a formato legible si existe
+            if ($paciente['fecha_nacimiento']) {
+                $fechaNac = new DateTime($paciente['fecha_nacimiento']);
+                $hoy = new DateTime();
+                $edad = $hoy->diff($fechaNac)->y;
+                $paciente['edad'] = $edad;
+                $paciente['fecha_nacimiento_formateada'] = $fechaNac->format('d/m/Y');
+            }
+
+            $response->getBody()->write(json_encode([
+                'success' => true,
+                'message' => 'Paciente encontrado',
+                'data' => [
+                    'id_paciente' => (int)$paciente['id_paciente'],
+                    'id_usuario' => (int)$paciente['id_usuario'],
+                    'cedula' => (string)$paciente['cedula'],
+                    'nombres' => $paciente['nombres'],
+                    'apellidos' => $paciente['apellidos'],
+                    'nombre_completo' => $paciente['nombre_completo'],
+                    'correo' => $paciente['correo'],
+                    'telefono' => $paciente['telefono'],
+                    'sexo' => $paciente['sexo'],
+                    'nacionalidad' => $paciente['nacionalidad'],
+                    'fecha_nacimiento' => $paciente['fecha_nacimiento'],
+                    'fecha_nacimiento_formateada' => $paciente['fecha_nacimiento_formateada'] ?? '',
+                    'edad' => $paciente['edad'] ?? null,
+                    'tipo_sangre' => $paciente['tipo_sangre'],
+                    'alergias' => $paciente['alergias'],
+                    'antecedentes_medicos' => $paciente['antecedentes_medicos'],
+                    'contacto_emergencia' => $paciente['contacto_emergencia'],
+                    'telefono_emergencia' => $paciente['telefono_emergencia'],
+                    'numero_seguro' => $paciente['numero_seguro']
+                ]
+            ]));
+
+            return $response->withStatus(200)->withHeader('Content-Type', 'application/json');
+        } else {
+            error_log("❌ Paciente no encontrado con cédula: " . $cedula);
+            
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'message' => 'Paciente no encontrado',
+                'codigo_error' => 'PACIENTE_NO_ENCONTRADO',
+                'data' => null
+            ]));
+
+            return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+        }
+
+    } catch (Exception $e) {
+        error_log("❌ Error buscando paciente: " . $e->getMessage());
+        
+        $response->getBody()->write(json_encode([
+            'success' => false,
+            'message' => 'Error interno del servidor: ' . $e->getMessage(),
+            'codigo_error' => 'ERROR_INTERNO'
         ]));
         return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
     }
