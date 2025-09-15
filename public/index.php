@@ -644,7 +644,7 @@ $app->delete('/api/horarios/{id_horario}', function (Request $request, Response 
     }
 });
 
-// ============ ENDPOINT PARA CREAR CITAS (CORREGIDO) ============
+// ============ ENDPOINT PARA CREAR CITAS (COMPLETAMENTE CORREGIDO) ============
 $app->post('/api/citas', function (Request $request, Response $response) {
     try {
         $data = json_decode($request->getBody()->getContents(), true);
@@ -656,10 +656,11 @@ $app->post('/api/citas', function (Request $request, Response $response) {
         // Validaciones básicas
         $camposRequeridos = ['id_paciente', 'id_doctor', 'id_sucursal', 'fecha_hora', 'motivo'];
         foreach ($camposRequeridos as $campo) {
-            if (empty($data[$campo])) {
+            if (empty($data[$campo]) && $data[$campo] !== 0) {
                 $response->getBody()->write(json_encode([
                     'success' => false,
-                    'message' => "El campo $campo es requerido"
+                    'message' => "El campo $campo es requerido",
+                    'campo_faltante' => $campo
                 ]));
                 return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
             }
@@ -667,21 +668,19 @@ $app->post('/api/citas', function (Request $request, Response $response) {
 
         $db = App\Config\Database::getConnection();
         
-        // Verificar si ya existe una cita en esa fecha/hora para el médico
-        $stmt = $db->prepare("
+        // ✅ PRIMERA CORRECCIÓN: Verificar si ya existe una cita en esa fecha/hora para el médico
+        $stmtVerificar = $db->prepare("
            SELECT id_cita 
            FROM citas 
-           WHERE id_doctor = :id_doctor 
-           AND DATE(fecha_hora) = DATE(:fecha_hora) 
-           AND TIME(fecha_hora) = TIME(:fecha_hora)
+           WHERE id_doctor = ? 
+           AND DATE(fecha_hora) = DATE(?) 
+           AND TIME(fecha_hora) = TIME(?)
            AND estado NOT IN ('Cancelada', 'Completada')
        ");
 
-        $stmt->bindParam(':id_doctor', $data['id_doctor']);
-        $stmt->bindParam(':fecha_hora', $data['fecha_hora']);
-        $stmt->execute();
+        $stmtVerificar->execute([$data['id_doctor'], $data['fecha_hora'], $data['fecha_hora']]);
 
-        if ($stmt->rowCount() > 0) {
+        if ($stmtVerificar->rowCount() > 0) {
             $response->getBody()->write(json_encode([
                 'success' => false,
                 'message' => 'Ya existe una cita programada para esa fecha y hora'
@@ -689,54 +688,38 @@ $app->post('/api/citas', function (Request $request, Response $response) {
             return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
         }
 
-// Insertar la cita con TODOS los campos que existen en la BD
-$stmt = $db->prepare("
-   INSERT INTO citas (
-       id_paciente, id_doctor, id_sucursal, id_tipo_cita, 
-       fecha_hora, motivo, tipo_cita, estado, notas, enlace_virtual, sala_virtual
-   ) VALUES (
-       :id_paciente, :id_doctor, :id_sucursal, :id_tipo_cita,
-       :fecha_hora, :motivo, :tipo_cita, :estado, :notas, :enlace_virtual, :sala_virtual
-   )
-");
+        // ✅ SEGUNDA CORRECCIÓN: SQL simplificado con parámetros posicionales
+        $sqlInsertar = "
+           INSERT INTO citas (
+               id_paciente, id_doctor, id_sucursal, id_tipo_cita, 
+               fecha_hora, motivo, tipo_cita, estado, notas, enlace_virtual, sala_virtual
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ";
 
-// TODOS los parámetros bien definidos
-$idTipoCita = $data['id_tipo_cita'] ?? 1;
-$tipoCita = $data['tipo_cita'] ?? 'presencial';
-$estado = 'Confirmada';
-$notas = $data['notas'] ?? '';
-$enlaceVirtual = $data['enlace_virtual'] ?? null;
-$salaVirtual = $data['sala_virtual'] ?? null;  // ← AGREGAR ESTA LÍNEA
+        // ✅ TERCERA CORRECCIÓN: Preparar valores con valores por defecto seguros
+        $valores = [
+            (int)$data['id_paciente'],
+            (int)$data['id_doctor'], 
+            (int)$data['id_sucursal'],
+            (int)($data['id_tipo_cita'] ?? 1),
+            $data['fecha_hora'],
+            $data['motivo'],
+            $data['tipo_cita'] ?? 'presencial',
+            $data['estado'] ?? 'Pendiente',
+            $data['notas'] ?? '',
+            $data['enlace_virtual'] ?? null,
+            $data['sala_virtual'] ?? null
+        ];
 
-$stmt->bindParam(':id_paciente', $data['id_paciente']);
-$stmt->bindParam(':id_doctor', $data['id_doctor']);
-$stmt->bindParam(':id_sucursal', $data['id_sucursal']);
-$stmt->bindParam(':id_tipo_cita', $idTipoCita);
-$stmt->bindParam(':fecha_hora', $data['fecha_hora']);
-$stmt->bindParam(':motivo', $data['motivo']);
-$stmt->bindParam(':tipo_cita', $tipoCita);
-$stmt->bindParam(':estado', $estado);
-$stmt->bindParam(':notas', $notas);
-$stmt->bindParam(':enlace_virtual', $enlaceVirtual);
-$stmt->bindParam(':sala_virtual', $salaVirtual);  // ← AGREGAR ESTA LÍNEA
-// Agregar estos logs de debug justo antes del execute()
-error_log("SQL preparado: " . $stmt->queryString);
-error_log("Número total de parámetros en el SQL: " . substr_count($stmt->queryString, ':'));
-error_log("Parámetros que vamos a vincular:");
-error_log("  :id_paciente = " . $data['id_paciente']);
-error_log("  :id_doctor = " . $data['id_doctor']);
-error_log("  :id_sucursal = " . $data['id_sucursal']);
-error_log("  :id_tipo_cita = " . $idTipoCita);
-error_log("  :fecha_hora = " . $data['fecha_hora']);
-error_log("  :motivo = " . $data['motivo']);
-error_log("  :tipo_cita = " . $tipoCita);
-error_log("  :estado = " . $estado);
-error_log("  :notas = " . $notas);
-error_log("  :enlace_virtual = " . ($enlaceVirtual ?? 'NULL'));
-error_log("  :sala_virtual = " . ($salaVirtual ?? 'NULL'));
+        // Debug logs antes de ejecutar
+        error_log("SQL: " . $sqlInsertar);
+        error_log("Valores: " . json_encode($valores));
+        error_log("Conteo parámetros SQL: " . substr_count($sqlInsertar, '?'));
+        error_log("Conteo valores: " . count($valores));
 
-
-        if ($stmt->execute()) {
+        $stmtInsertar = $db->prepare($sqlInsertar);
+        
+        if ($stmtInsertar->execute($valores)) {
             
             $idCita = $db->lastInsertId();
             
@@ -756,11 +739,10 @@ error_log("  :sala_virtual = " . ($salaVirtual ?? 'NULL'));
                 JOIN usuarios um ON d.id_usuario = um.id_usuario
                 JOIN especialidades e ON d.id_especialidad = e.id_especialidad
                 JOIN sucursales s ON c.id_sucursal = s.id_sucursal
-                WHERE c.id_cita = :id_cita
+                WHERE c.id_cita = ?
             ");
             
-            $stmtDetalles->bindParam(':id_cita', $idCita);
-            $stmtDetalles->execute();
+            $stmtDetalles->execute([$idCita]);
             $citaCompleta = $stmtDetalles->fetch();
 
             error_log("✅ Cita creada exitosamente con ID: " . $idCita);
@@ -774,12 +756,18 @@ error_log("  :sala_virtual = " . ($salaVirtual ?? 'NULL'));
             return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
         } else {
             // Manejo de error si execute() falla
-            $errorInfo = $stmt->errorInfo();
+            $errorInfo = $stmtInsertar->errorInfo();
             error_log("❌ Error al ejecutar INSERT de cita: " . json_encode($errorInfo));
             
             $response->getBody()->write(json_encode([
                 'success' => false,
-                'message' => 'Error al crear la cita: ' . $errorInfo[2]
+                'message' => 'Error al crear la cita: ' . $errorInfo[2],
+                'sql_error' => $errorInfo,
+                'debug_info' => [
+                    'sql_params_count' => substr_count($sqlInsertar, '?'),
+                    'values_count' => count($valores),
+                    'values' => $valores
+                ]
             ]));
             return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
         }
@@ -790,12 +778,17 @@ error_log("  :sala_virtual = " . ($salaVirtual ?? 'NULL'));
         
         $response->getBody()->write(json_encode([
             'success' => false,
-            'message' => 'Error interno del servidor: ' . $e->getMessage()
+            'message' => 'Error interno del servidor: ' . $e->getMessage(),
+            'codigo_error' => 'ERROR_INTERNO',
+            'debug_info' => [
+                'file' => $e->getFile(),
+                'line' => $e->getLine()
+            ]
         ]));
         return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
     }
-
 });
+
 // ============ ENDPOINT PARA BUSCAR PACIENTE POR CÉDULA ============
 $app->get('/api/pacientes/{cedula}', function (Request $request, Response $response, array $args) {
     try {
