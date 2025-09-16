@@ -647,6 +647,7 @@ $app->delete('/api/horarios/{id_horario}', function (Request $request, Response 
 // ============ ENDPOINT PARA CREAR CITAS (COMPLETAMENTE CORREGIDO) ============
 $app->post('/api/citas', function (Request $request, Response $response) {
     try {
+        
         $data = json_decode($request->getBody()->getContents(), true);
         
         // Log para debug
@@ -951,6 +952,606 @@ $app->post('/api/citas/consultar', function (Request $request, Response $respons
         $response->getBody()->write(json_encode([
             'success' => false,
             'message' => 'Error interno del servidor: ' . $e->getMessage()
+        ]));
+        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+    }
+});
+// ============ 1. TRIAJE - ENFERMERO (Lista Cotejo #1) ============
+
+// Crear registro de triaje
+$app->post('/api/triaje', function (Request $request, Response $response) {
+    try {
+        $data = json_decode($request->getBody()->getContents(), true);
+        $db = App\Config\Database::getConnection();
+
+        // Validaciones básicas
+        if (empty($data['id_cita']) || empty($data['id_enfermero'])) {
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'message' => 'ID de cita e ID de enfermero son requeridos'
+            ]));
+            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+        }
+
+        // Verificar si ya existe triaje para esta cita
+        $stmtCheck = $db->prepare("SELECT id_triage FROM triage WHERE id_cita = :id_cita");
+        $stmtCheck->bindParam(':id_cita', $data['id_cita']);
+        $stmtCheck->execute();
+        
+        if ($stmtCheck->fetch()) {
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'message' => 'Ya existe un triaje registrado para esta cita'
+            ]));
+            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+        }
+
+        // Calcular IMC si hay peso y talla
+        $imc = null;
+        if (!empty($data['peso']) && !empty($data['talla'])) {
+            $tallaEnMetros = $data['talla'] / 100;
+            $imc = round($data['peso'] / ($tallaEnMetros * $tallaEnMetros), 2);
+        }
+
+        $sql = "INSERT INTO triage (
+            id_cita, id_enfermero, nivel_urgencia, estado_triaje,
+            temperatura, presion_arterial, frecuencia_cardiaca, 
+            frecuencia_respiratoria, saturacion_oxigeno, 
+            peso, talla, imc, observaciones
+        ) VALUES (
+            :id_cita, :id_enfermero, :nivel_urgencia, :estado_triaje,
+            :temperatura, :presion_arterial, :frecuencia_cardiaca,
+            :frecuencia_respiratoria, :saturacion_oxigeno,
+            :peso, :talla, :imc, :observaciones
+        )";
+
+        $stmt = $db->prepare($sql);
+        $stmt->bindParam(':id_cita', $data['id_cita']);
+        $stmt->bindParam(':id_enfermero', $data['id_enfermero']);
+        $stmt->bindParam(':nivel_urgencia', $data['nivel_urgencia'] ?? 1);
+        $stmt->bindParam(':estado_triaje', $data['estado_triaje'] ?? 'Completado');
+        $stmt->bindParam(':temperatura', $data['temperatura']);
+        $stmt->bindParam(':presion_arterial', $data['presion_arterial']);
+        $stmt->bindParam(':frecuencia_cardiaca', $data['frecuencia_cardiaca']);
+        $stmt->bindParam(':frecuencia_respiratoria', $data['frecuencia_respiratoria']);
+        $stmt->bindParam(':saturacion_oxigeno', $data['saturacion_oxigeno']);
+        $stmt->bindParam(':peso', $data['peso']);
+        $stmt->bindParam(':talla', $data['talla']);
+        $stmt->bindParam(':imc', $imc);
+        $stmt->bindParam(':observaciones', $data['observaciones']);
+
+        $stmt->execute();
+        $triageId = $db->lastInsertId();
+
+        // Obtener el triaje creado
+        $stmtGet = $db->prepare("SELECT * FROM triage WHERE id_triage = :id");
+        $stmtGet->bindParam(':id', $triageId);
+        $stmtGet->execute();
+        $triaje = $stmtGet->fetch();
+
+        $response->getBody()->write(json_encode([
+            'success' => true,
+            'message' => 'Triaje registrado exitosamente',
+            'data' => $triaje
+        ]));
+
+        return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
+
+    } catch (Exception $e) {
+        $response->getBody()->write(json_encode([
+            'success' => false,
+            'message' => 'Error al registrar triaje: ' . $e->getMessage()
+        ]));
+        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+    }
+});
+
+// Obtener triaje por cita
+$app->get('/api/triaje/cita/{id_cita}', function (Request $request, Response $response, $args) {
+    try {
+        $id_cita = $args['id_cita'];
+        $db = App\Config\Database::getConnection();
+
+        $sql = "SELECT t.*, 
+                CONCAT(u.nombres, ' ', u.apellidos) as nombre_enfermero
+                FROM triage t
+                LEFT JOIN usuarios u ON t.id_enfermero = u.id_usuario
+                WHERE t.id_cita = :id_cita";
+
+        $stmt = $db->prepare($sql);
+        $stmt->bindParam(':id_cita', $id_cita);
+        $stmt->execute();
+        $triaje = $stmt->fetch();
+
+        if (!$triaje) {
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'message' => 'No se encontró triaje para esta cita'
+            ]));
+            return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+        }
+
+        $response->getBody()->write(json_encode([
+            'success' => true,
+            'message' => 'Triaje obtenido exitosamente',
+            'data' => $triaje
+        ]));
+
+        return $response->withHeader('Content-Type', 'application/json');
+
+    } catch (Exception $e) {
+        $response->getBody()->write(json_encode([
+            'success' => false,
+            'message' => 'Error al obtener triaje: ' . $e->getMessage()
+        ]));
+        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+    }
+});
+
+// ============ 2. CONSULTAS MÉDICAS - DIAGNÓSTICO (Lista Cotejo #2) ============
+
+// Crear consulta médica con diagnóstico
+$app->post('/api/consultas', function (Request $request, Response $response) {
+    try {
+        $data = json_decode($request->getBody()->getContents(), true);
+        $db = App\Config\Database::getConnection();
+
+        // Validaciones básicas
+        if (empty($data['id_cita']) || empty($data['diagnostico'])) {
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'message' => 'ID de cita y diagnóstico son requeridos'
+            ]));
+            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+        }
+
+        // Verificar si ya existe consulta para esta cita
+        $stmtCheck = $db->prepare("SELECT id_consulta FROM consultas_medicas WHERE id_cita = :id_cita");
+        $stmtCheck->bindParam(':id_cita', $data['id_cita']);
+        $stmtCheck->execute();
+        
+        if ($stmtCheck->fetch()) {
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'message' => 'Ya existe una consulta médica registrada para esta cita'
+            ]));
+            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+        }
+
+        // Obtener o crear historial clínico del paciente
+        $stmtPaciente = $db->prepare("
+            SELECT p.id_paciente FROM citas c 
+            JOIN pacientes p ON c.id_paciente = p.id_paciente 
+            WHERE c.id_cita = :id_cita
+        ");
+        $stmtPaciente->bindParam(':id_cita', $data['id_cita']);
+        $stmtPaciente->execute();
+        $paciente = $stmtPaciente->fetch();
+
+        if (!$paciente) {
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'message' => 'No se encontró la cita especificada'
+            ]));
+            return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+        }
+
+        // Verificar si existe historial clínico
+        $stmtHistorial = $db->prepare("SELECT id_historial FROM historiales_clinicos WHERE id_paciente = :id_paciente");
+        $stmtHistorial->bindParam(':id_paciente', $paciente['id_paciente']);
+        $stmtHistorial->execute();
+        $historial = $stmtHistorial->fetch();
+
+        $id_historial = null;
+        if (!$historial) {
+            // Crear historial clínico si no existe
+            $stmtCreateHistorial = $db->prepare("INSERT INTO historiales_clinicos (id_paciente) VALUES (:id_paciente)");
+            $stmtCreateHistorial->bindParam(':id_paciente', $paciente['id_paciente']);
+            $stmtCreateHistorial->execute();
+            $id_historial = $db->lastInsertId();
+        } else {
+            $id_historial = $historial['id_historial'];
+        }
+
+        $sql = "INSERT INTO consultas_medicas (
+            id_cita, id_historial, motivo_consulta, sintomatologia,
+            diagnostico, tratamiento, observaciones, fecha_seguimiento
+        ) VALUES (
+            :id_cita, :id_historial, :motivo_consulta, :sintomatologia,
+            :diagnostico, :tratamiento, :observaciones, :fecha_seguimiento
+        )";
+
+        $stmt = $db->prepare($sql);
+        $stmt->bindParam(':id_cita', $data['id_cita']);
+        $stmt->bindParam(':id_historial', $id_historial);
+        $stmt->bindParam(':motivo_consulta', $data['motivo_consulta'] ?? '');
+        $stmt->bindParam(':sintomatologia', $data['sintomatologia']);
+        $stmt->bindParam(':diagnostico', $data['diagnostico']);
+        $stmt->bindParam(':tratamiento', $data['tratamiento']);
+        $stmt->bindParam(':observaciones', $data['observaciones']);
+        $stmt->bindParam(':fecha_seguimiento', $data['fecha_seguimiento']);
+
+        $stmt->execute();
+        $consultaId = $db->lastInsertId();
+
+        // Obtener la consulta creada
+        $stmtGet = $db->prepare("SELECT * FROM consultas_medicas WHERE id_consulta = :id");
+        $stmtGet->bindParam(':id', $consultaId);
+        $stmtGet->execute();
+        $consulta = $stmtGet->fetch();
+
+        $response->getBody()->write(json_encode([
+            'success' => true,
+            'message' => 'Consulta médica registrada exitosamente',
+            'data' => $consulta
+        ]));
+
+        return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
+
+    } catch (Exception $e) {
+        $response->getBody()->write(json_encode([
+            'success' => false,
+            'message' => 'Error al registrar consulta médica: ' . $e->getMessage()
+        ]));
+        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+    }
+});
+
+// Obtener consulta médica por cita
+$app->get('/api/consultas/cita/{id_cita}', function (Request $request, Response $response, $args) {
+    try {
+        $id_cita = $args['id_cita'];
+        $db = App\Config\Database::getConnection();
+
+        $sql = "SELECT cm.* FROM consultas_medicas cm WHERE cm.id_cita = :id_cita";
+
+        $stmt = $db->prepare($sql);
+        $stmt->bindParam(':id_cita', $id_cita);
+        $stmt->execute();
+        $consulta = $stmt->fetch();
+
+        if (!$consulta) {
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'message' => 'No se encontró consulta médica para esta cita'
+            ]));
+            return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+        }
+
+        $response->getBody()->write(json_encode([
+            'success' => true,
+            'message' => 'Consulta médica obtenida exitosamente',
+            'data' => $consulta
+        ]));
+
+        return $response->withHeader('Content-Type', 'application/json');
+
+    } catch (Exception $e) {
+        $response->getBody()->write(json_encode([
+            'success' => false,
+            'message' => 'Error al obtener consulta médica: ' . $e->getMessage()
+        ]));
+        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+    }
+});
+
+// ============ 3. TRATAMIENTOS (Lista Cotejo #3) ============
+
+// Crear tratamiento
+$app->post('/api/tratamientos', function (Request $request, Response $response) {
+    try {
+        $data = json_decode($request->getBody()->getContents(), true);
+        $db = App\Config\Database::getConnection();
+
+        // Validaciones básicas
+        if (empty($data['id_consulta']) || empty($data['nombre_tratamiento'])) {
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'message' => 'ID de consulta y nombre del tratamiento son requeridos'
+            ]));
+            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+        }
+
+        $sql = "INSERT INTO tratamientos (
+            id_consulta, nombre_tratamiento, descripcion, fecha_inicio,
+            fecha_fin, frecuencia, duracion_sesiones, numero_sesiones,
+            observaciones, estado
+        ) VALUES (
+            :id_consulta, :nombre_tratamiento, :descripcion, :fecha_inicio,
+            :fecha_fin, :frecuencia, :duracion_sesiones, :numero_sesiones,
+            :observaciones, :estado
+        )";
+
+        $stmt = $db->prepare($sql);
+        $stmt->bindParam(':id_consulta', $data['id_consulta']);
+        $stmt->bindParam(':nombre_tratamiento', $data['nombre_tratamiento']);
+        $stmt->bindParam(':descripcion', $data['descripcion']);
+        $stmt->bindParam(':fecha_inicio', $data['fecha_inicio']);
+        $stmt->bindParam(':fecha_fin', $data['fecha_fin']);
+        $stmt->bindParam(':frecuencia', $data['frecuencia']);
+        $stmt->bindParam(':duracion_sesiones', $data['duracion_sesiones']);
+        $stmt->bindParam(':numero_sesiones', $data['numero_sesiones']);
+        $stmt->bindParam(':observaciones', $data['observaciones']);
+        $stmt->bindParam(':estado', $data['estado'] ?? 'Activo');
+
+        $stmt->execute();
+        $tratamientoId = $db->lastInsertId();
+
+        // Obtener el tratamiento creado
+        $stmtGet = $db->prepare("SELECT * FROM tratamientos WHERE id_tratamiento = :id");
+        $stmtGet->bindParam(':id', $tratamientoId);
+        $stmtGet->execute();
+        $tratamiento = $stmtGet->fetch();
+
+        $response->getBody()->write(json_encode([
+            'success' => true,
+            'message' => 'Tratamiento registrado exitosamente',
+            'data' => $tratamiento
+        ]));
+
+        return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
+
+    } catch (Exception $e) {
+        $response->getBody()->write(json_encode([
+            'success' => false,
+            'message' => 'Error al registrar tratamiento: ' . $e->getMessage()
+        ]));
+        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+    }
+});
+
+// Obtener tratamientos por consulta
+$app->get('/api/tratamientos/consulta/{id_consulta}', function (Request $request, Response $response, $args) {
+    try {
+        $id_consulta = $args['id_consulta'];
+        $db = App\Config\Database::getConnection();
+
+        $sql = "SELECT * FROM tratamientos WHERE id_consulta = :id_consulta ORDER BY fecha_inicio DESC";
+
+        $stmt = $db->prepare($sql);
+        $stmt->bindParam(':id_consulta', $id_consulta);
+        $stmt->execute();
+        $tratamientos = $stmt->fetchAll();
+
+        $response->getBody()->write(json_encode([
+            'success' => true,
+            'message' => 'Tratamientos obtenidos exitosamente',
+            'data' => $tratamientos
+        ]));
+
+        return $response->withHeader('Content-Type', 'application/json');
+
+    } catch (Exception $e) {
+        $response->getBody()->write(json_encode([
+            'success' => false,
+            'message' => 'Error al obtener tratamientos: ' . $e->getMessage()
+        ]));
+        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+    }
+});
+
+// ============ 4. RECETAS MÉDICAS (Lista Cotejo #4) ============
+
+// Crear receta médica
+$app->post('/api/recetas', function (Request $request, Response $response) {
+    try {
+        $data = json_decode($request->getBody()->getContents(), true);
+        $db = App\Config\Database::getConnection();
+
+        // Validaciones básicas
+        if (empty($data['id_consulta']) || empty($data['medicamentos'])) {
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'message' => 'ID de consulta y medicamentos son requeridos'
+            ]));
+            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+        }
+
+        $sql = "INSERT INTO recetas_medicas (
+            id_consulta, medicamentos, instrucciones, fecha_emision,
+            fecha_vencimiento, observaciones
+        ) VALUES (
+            :id_consulta, :medicamentos, :instrucciones, :fecha_emision,
+            :fecha_vencimiento, :observaciones
+        )";
+
+        $stmt = $db->prepare($sql);
+        $stmt->bindParam(':id_consulta', $data['id_consulta']);
+        $stmt->bindParam(':medicamentos', $data['medicamentos']);
+        $stmt->bindParam(':instrucciones', $data['instrucciones']);
+        $stmt->bindParam(':fecha_emision', $data['fecha_emision'] ?? date('Y-m-d'));
+        $stmt->bindParam(':fecha_vencimiento', $data['fecha_vencimiento']);
+        $stmt->bindParam(':observaciones', $data['observaciones']);
+
+        $stmt->execute();
+        $recetaId = $db->lastInsertId();
+
+        // Obtener la receta creada
+        $stmtGet = $db->prepare("SELECT * FROM recetas_medicas WHERE id_receta = :id");
+        $stmtGet->bindParam(':id', $recetaId);
+        $stmtGet->execute();
+        $receta = $stmtGet->fetch();
+
+        $response->getBody()->write(json_encode([
+            'success' => true,
+            'message' => 'Receta médica registrada exitosamente',
+            'data' => $receta
+        ]));
+
+        return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
+
+    } catch (Exception $e) {
+        $response->getBody()->write(json_encode([
+            'success' => false,
+            'message' => 'Error al registrar receta médica: ' . $e->getMessage()
+        ]));
+        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+    }
+});
+
+// Obtener recetas por consulta
+$app->get('/api/recetas/consulta/{id_consulta}', function (Request $request, Response $response, $args) {
+    try {
+        $id_consulta = $args['id_consulta'];
+        $db = App\Config\Database::getConnection();
+
+        $sql = "SELECT * FROM recetas_medicas WHERE id_consulta = :id_consulta ORDER BY fecha_emision DESC";
+
+        $stmt = $db->prepare($sql);
+        $stmt->bindParam(':id_consulta', $id_consulta);
+        $stmt->execute();
+        $recetas = $stmt->fetchAll();
+
+        $response->getBody()->write(json_encode([
+            'success' => true,
+            'message' => 'Recetas obtenidas exitosamente',
+            'data' => $recetas
+        ]));
+
+        return $response->withHeader('Content-Type', 'application/json');
+
+    } catch (Exception $e) {
+        $response->getBody()->write(json_encode([
+            'success' => false,
+            'message' => 'Error al obtener recetas: ' . $e->getMessage()
+        ]));
+        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+    }
+});
+
+// ============ 5. CONSULTA COMPLETA DE CITA (Lista Cotejo #5) ============
+
+// Obtener cita completa con todo el flujo
+$app->get('/api/citas/{id_cita}/completa', function (Request $request, Response $response, $args) {
+    try {
+        $id_cita = $args['id_cita'];
+        $db = App\Config\Database::getConnection();
+
+        // Obtener información básica de la cita
+        $sqlCita = "
+            SELECT 
+                c.*,
+                CONCAT(up.nombres, ' ', up.apellidos) as nombre_paciente,
+                up.cedula as cedula_paciente,
+                CONCAT(um.nombres, ' ', um.apellidos) as nombre_medico,
+                e.nombre_especialidad,
+                s.nombre_sucursal,
+                tc.nombre_tipo
+            FROM citas c
+            JOIN pacientes p ON c.id_paciente = p.id_paciente
+            JOIN usuarios up ON p.id_usuario = up.id_usuario
+            JOIN doctores d ON c.id_doctor = d.id_doctor
+            JOIN usuarios um ON d.id_usuario = um.id_usuario
+            JOIN especialidades e ON d.id_especialidad = e.id_especialidad
+            JOIN sucursales s ON c.id_sucursal = s.id_sucursal
+            LEFT JOIN tipos_cita tc ON c.id_tipo_cita = tc.id_tipo_cita
+            WHERE c.id_cita = :id_cita
+        ";
+
+        $stmtCita = $db->prepare($sqlCita);
+        $stmtCita->bindParam(':id_cita', $id_cita);
+        $stmtCita->execute();
+        $cita = $stmtCita->fetch();
+
+        if (!$cita) {
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'message' => 'Cita no encontrada'
+            ]));
+            return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+        }
+
+        // Obtener triaje
+        $sqlTriaje = "
+            SELECT t.*, CONCAT(u.nombres, ' ', u.apellidos) as nombre_enfermero
+            FROM triage t
+            LEFT JOIN usuarios u ON t.id_enfermero = u.id_usuario
+            WHERE t.id_cita = :id_cita
+        ";
+        $stmtTriaje = $db->prepare($sqlTriaje);
+        $stmtTriaje->bindParam(':id_cita', $id_cita);
+        $stmtTriaje->execute();
+        $triaje = $stmtTriaje->fetch();
+
+        // Obtener consulta médica
+        $sqlConsulta = "SELECT * FROM consultas_medicas WHERE id_cita = :id_cita";
+        $stmtConsulta = $db->prepare($sqlConsulta);
+        $stmtConsulta->bindParam(':id_cita', $id_cita);
+        $stmtConsulta->execute();
+        $consulta = $stmtConsulta->fetch();
+
+        // Obtener tratamientos
+        $tratamientos = [];
+        if ($consulta) {
+            $sqlTratamientos = "SELECT * FROM tratamientos WHERE id_consulta = :id_consulta";
+            $stmtTratamientos = $db->prepare($sqlTratamientos);
+            $stmtTratamientos->bindParam(':id_consulta', $consulta['id_consulta']);
+            $stmtTratamientos->execute();
+            $tratamientos = $stmtTratamientos->fetchAll();
+        }
+
+        // Obtener recetas
+        $recetas = [];
+        if ($consulta) {
+            $sqlRecetas = "SELECT * FROM recetas_medicas WHERE id_consulta = :id_consulta";
+            $stmtRecetas = $db->prepare($sqlRecetas);
+            $stmtRecetas->bindParam(':id_consulta', $consulta['id_consulta']);
+            $stmtRecetas->execute();
+            $recetas = $stmtRecetas->fetchAll();
+        }
+
+        $response->getBody()->write(json_encode([
+            'success' => true,
+            'message' => 'Información completa de la cita obtenida exitosamente',
+            'data' => [
+                'cita' => $cita,
+                'triaje' => $triaje ?: null,
+                'consulta' => $consulta ?: null,
+                'tratamientos' => $tratamientos,
+                'recetas' => $recetas
+            ]
+        ]));
+
+        return $response->withHeader('Content-Type', 'application/json');
+
+    } catch (Exception $e) {
+        $response->getBody()->write(json_encode([
+            'success' => false,
+            'message' => 'Error al obtener información completa de la cita: ' . $e->getMessage()
+        ]));
+        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+    }
+});
+
+// ============ ENDPOINTS ADICIONALES ÚTILES ============
+
+// Obtener lista de enfermeros (para el triaje)
+$app->get('/api/enfermeros', function (Request $request, Response $response) {
+    try {
+        $db = App\Config\Database::getConnection();
+
+        $sql = "SELECT u.id_usuario, u.nombres, u.apellidos, u.cedula, u.correo
+                FROM usuarios u 
+                JOIN roles_usuarios ru ON u.id_usuario = ru.id_usuario 
+                WHERE ru.id_rol = 3 AND u.activo = 1
+                ORDER BY u.nombres, u.apellidos";
+
+        $stmt = $db->prepare($sql);
+        $stmt->execute();
+        $enfermeros = $stmt->fetchAll();
+
+        $response->getBody()->write(json_encode([
+            'success' => true,
+            'message' => 'Enfermeros obtenidos exitosamente',
+            'data' => $enfermeros
+        ]));
+
+        return $response->withHeader('Content-Type', 'application/json');
+
+    } catch (Exception $e) {
+        $response->getBody()->write(json_encode([
+            'success' => false,
+            'message' => 'Error al obtener enfermeros: ' . $e->getMessage()
         ]));
         return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
     }
