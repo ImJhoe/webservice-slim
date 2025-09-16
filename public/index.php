@@ -445,6 +445,123 @@ $app->post('/api/horarios', function (Request $request, Response $response) {
         return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
     }
 });
+// ============ ENDPOINT PUT PARA ACTUALIZAR HORARIOS (SIN fecha_actualizacion) ============
+// Reemplazar el endpoint anterior con este
+
+$app->put('/api/horarios/{id}', function (Request $request, Response $response, $args) {
+    try {
+        $idHorario = $args['id'];
+        $data = $request->getParsedBody();
+        
+        error_log("=== ACTUALIZANDO HORARIO ===");
+        error_log("ID Horario: " . $idHorario);
+        error_log("Datos recibidos: " . json_encode($data));
+        
+        // Validar campos requeridos
+        $camposRequeridos = ['dia_semana', 'hora_inicio', 'hora_fin', 'id_sucursal'];
+        foreach ($camposRequeridos as $campo) {
+            if (!isset($data[$campo]) || empty($data[$campo])) {
+                $response->getBody()->write(json_encode([
+                    'success' => false,
+                    'message' => "El campo '$campo' es requerido",
+                    'codigo_error' => 'CAMPO_REQUERIDO'
+                ]));
+                return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+            }
+        }
+
+        $db = App\Config\Database::getConnection();
+        
+        // Verificar que el horario existe
+        $checkStmt = $db->prepare("SELECT * FROM doctor_horarios WHERE id_horario = :id_horario");
+        $checkStmt->bindParam(':id_horario', $idHorario);
+        $checkStmt->execute();
+        
+        if ($checkStmt->rowCount() === 0) {
+            $response->getBody()->write(json_encode([
+                'success' => false,
+                'message' => 'Horario no encontrado',
+                'codigo_error' => 'HORARIO_NO_ENCONTRADO'
+            ]));
+            return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+        }
+        
+        // Actualizar el horario (SIN fecha_actualizacion)
+        $stmt = $db->prepare("
+            UPDATE doctor_horarios 
+            SET dia_semana = :dia_semana,
+                hora_inicio = :hora_inicio,
+                hora_fin = :hora_fin,
+                duracion_cita = :duracion_cita,
+                id_sucursal = :id_sucursal
+            WHERE id_horario = :id_horario
+        ");
+        
+        $duracionCita = $data['duracion_cita'] ?? 30;
+        
+        $stmt->bindParam(':id_horario', $idHorario);
+        $stmt->bindParam(':dia_semana', $data['dia_semana']);
+        $stmt->bindParam(':hora_inicio', $data['hora_inicio']);
+        $stmt->bindParam(':hora_fin', $data['hora_fin']);
+        $stmt->bindParam(':duracion_cita', $duracionCita);
+        $stmt->bindParam(':id_sucursal', $data['id_sucursal']);
+        
+        $stmt->execute();
+        
+        // Obtener el horario actualizado
+        $selectStmt = $db->prepare("
+            SELECT 
+                hm.*,
+                s.nombre_sucursal,
+                CASE hm.dia_semana
+                    WHEN 1 THEN 'Lunes'
+                    WHEN 2 THEN 'Martes'
+                    WHEN 3 THEN 'Miércoles'
+                    WHEN 4 THEN 'Jueves'
+                    WHEN 5 THEN 'Viernes'
+                    WHEN 6 THEN 'Sábado'
+                    WHEN 7 THEN 'Domingo'
+                END as nombre_dia
+            FROM doctor_horarios hm
+            JOIN sucursales s ON hm.id_sucursal = s.id_sucursal
+            WHERE hm.id_horario = :id_horario
+        ");
+        
+        $selectStmt->bindParam(':id_horario', $idHorario);
+        $selectStmt->execute();
+        $horarioActualizado = $selectStmt->fetch();
+        
+        error_log("✅ Horario actualizado exitosamente");
+        
+        $response->getBody()->write(json_encode([
+            'success' => true,
+            'message' => 'Horario actualizado correctamente',
+            'data' => $horarioActualizado
+        ]));
+        
+        return $response->withStatus(200)->withHeader('Content-Type', 'application/json');
+        
+    } catch (PDOException $e) {
+        error_log("❌ Error SQL en actualización: " . $e->getMessage());
+        
+        $response->getBody()->write(json_encode([
+            'success' => false,
+            'message' => 'Error en la base de datos: ' . $e->getMessage(),
+            'codigo_error' => 'DATABASE_ERROR'
+        ]));
+        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        
+    } catch (Exception $e) {
+        error_log("❌ Exception en actualización: " . $e->getMessage());
+        
+        $response->getBody()->write(json_encode([
+            'success' => false,
+            'message' => 'Error interno del servidor: ' . $e->getMessage(),
+            'codigo_error' => 'INTERNAL_ERROR'
+        ]));
+        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+    }
+});
 // ============ ENDPOINT PARA CONSULTAR HORARIOS POR MÉDICO ============
 $app->get('/api/horarios/medico/{id_medico}', function (Request $request, Response $response, $args) {
     try {
@@ -1552,6 +1669,157 @@ $app->get('/api/enfermeros', function (Request $request, Response $response) {
         $response->getBody()->write(json_encode([
             'success' => false,
             'message' => 'Error al obtener enfermeros: ' . $e->getMessage()
+        ]));
+        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+    }
+});
+$app->get('/api/citas', function (Request $request, Response $response) {
+    try {
+        $params = $request->getQueryParams();
+        $fecha = $params['fecha'] ?? null;
+        $medico = $params['medico'] ?? null;
+        $estado = $params['estado'] ?? null;
+        
+        error_log("=== LISTANDO CITAS ===");
+        error_log("Fecha: " . ($fecha ?? 'todas'));
+        error_log("Médico: " . ($medico ?? 'todos'));
+        error_log("Estado: " . ($estado ?? 'todos'));
+        
+        $db = App\Config\Database::getConnection();
+        
+        // Query base
+        $sql = "SELECT 
+                    c.id_cita,
+                    c.fecha_hora,
+                    c.motivo,
+                    c.estado,
+                    c.tipo_cita,
+                    c.notas,
+                    CONCAT(up.nombres, ' ', up.apellidos) as nombre_paciente,
+                    up.cedula as cedula_paciente,
+                    CONCAT(um.nombres, ' ', um.apellidos) as nombre_medico,
+                    e.nombre_especialidad,
+                    s.nombre_sucursal,
+                    DATE(c.fecha_hora) as fecha_cita,
+                    TIME(c.fecha_hora) as hora_cita
+                FROM citas c
+                JOIN pacientes p ON c.id_paciente = p.id_paciente
+                JOIN usuarios up ON p.id_usuario = up.id_usuario
+                JOIN doctores d ON c.id_doctor = d.id_doctor
+                JOIN usuarios um ON d.id_usuario = um.id_usuario
+                JOIN especialidades e ON d.id_especialidad = e.id_especialidad
+                JOIN sucursales s ON c.id_sucursal = s.id_sucursal
+                WHERE 1=1";
+        
+        $params_sql = [];
+        
+        // Filtro por fecha
+        if ($fecha) {
+            $sql .= " AND DATE(c.fecha_hora) = :fecha";
+            $params_sql[':fecha'] = $fecha;
+        }
+        
+        // Filtro por médico
+        if ($medico) {
+            $sql .= " AND c.id_doctor = :medico";
+            $params_sql[':medico'] = $medico;
+        }
+        
+        // Filtro por estado
+        if ($estado) {
+            $sql .= " AND c.estado = :estado";
+            $params_sql[':estado'] = $estado;
+        }
+        
+        $sql .= " ORDER BY c.fecha_hora DESC";
+        
+        error_log("SQL: " . $sql);
+        error_log("Params: " . json_encode($params_sql));
+        
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params_sql);
+        $citas = $stmt->fetchAll();
+        
+        error_log("Citas encontradas: " . count($citas));
+        
+        $response->getBody()->write(json_encode([
+            'success' => true,
+            'message' => 'Citas obtenidas exitosamente',
+            'data' => $citas,
+            'total' => count($citas),
+            'filtros' => [
+                'fecha' => $fecha,
+                'medico' => $medico,
+                'estado' => $estado
+            ]
+        ]));
+        
+        return $response->withHeader('Content-Type', 'application/json');
+        
+    } catch (Exception $e) {
+        error_log("❌ Error listando citas: " . $e->getMessage());
+        
+        $response->getBody()->write(json_encode([
+            'success' => false,
+            'message' => 'Error al obtener citas: ' . $e->getMessage(),
+            'codigo_error' => 'CITAS_LIST_ERROR'
+        ]));
+        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+    }
+});
+
+// ============ ENDPOINT PARA OBTENER ESTADÍSTICAS DE CITAS ============
+$app->get('/api/citas/estadisticas', function (Request $request, Response $response) {
+    try {
+        $db = App\Config\Database::getConnection();
+        
+        // Contar citas por estado
+        $stmt = $db->query("
+            SELECT 
+                estado,
+                COUNT(*) as total 
+            FROM citas 
+            GROUP BY estado
+        ");
+        $estadisticas = $stmt->fetchAll();
+        
+        // Total de citas hoy
+        $stmtHoy = $db->query("
+            SELECT COUNT(*) as total_hoy 
+            FROM citas 
+            WHERE DATE(fecha_hora) = CURDATE()
+        ");
+        $citasHoy = $stmtHoy->fetch();
+        
+        // Citas por médico
+        $stmtMedicos = $db->query("
+            SELECT 
+                CONCAT(u.nombres, ' ', u.apellidos) as medico,
+                COUNT(c.id_cita) as total_citas
+            FROM citas c
+            JOIN doctores d ON c.id_doctor = d.id_doctor
+            JOIN usuarios u ON d.id_usuario = u.id_usuario
+            GROUP BY c.id_doctor, u.nombres, u.apellidos
+            ORDER BY total_citas DESC
+            LIMIT 5
+        ");
+        $citasPorMedico = $stmtMedicos->fetchAll();
+        
+        $response->getBody()->write(json_encode([
+            'success' => true,
+            'data' => [
+                'por_estado' => $estadisticas,
+                'total_hoy' => $citasHoy['total_hoy'],
+                'por_medico' => $citasPorMedico
+            ]
+        ]));
+        
+        return $response->withHeader('Content-Type', 'application/json');
+        
+    } catch (Exception $e) {
+        $response->getBody()->write(json_encode([
+            'success' => false,
+            'message' => 'Error al obtener estadísticas: ' . $e->getMessage()
         ]));
         return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
     }
