@@ -1122,20 +1122,22 @@ $app->post('/api/triaje', function (Request $request, Response $response) {
             :peso, :talla, :imc, :observaciones
         )";
 
-        $stmt = $db->prepare($sql);
-        $stmt->bindParam(':id_cita', $data['id_cita']);
-        $stmt->bindParam(':id_enfermero', $data['id_enfermero']);
-        $stmt->bindParam(':nivel_urgencia', $data['nivel_urgencia'] ?? 1);
-        $stmt->bindParam(':estado_triaje', $data['estado_triaje'] ?? 'Completado');
-        $stmt->bindParam(':temperatura', $data['temperatura']);
-        $stmt->bindParam(':presion_arterial', $data['presion_arterial']);
-        $stmt->bindParam(':frecuencia_cardiaca', $data['frecuencia_cardiaca']);
-        $stmt->bindParam(':frecuencia_respiratoria', $data['frecuencia_respiratoria']);
-        $stmt->bindParam(':saturacion_oxigeno', $data['saturacion_oxigeno']);
-        $stmt->bindParam(':peso', $data['peso']);
-        $stmt->bindParam(':talla', $data['talla']);
-        $stmt->bindParam(':imc', $imc);
-        $stmt->bindParam(':observaciones', $data['observaciones']);
+       $stmt = $db->prepare($sql);
+
+// ✅ ALTERNATIVA MÁS FÁCIL: Usar bindValue() directamente
+$stmt->bindValue(':id_cita', $data['id_cita']);
+$stmt->bindValue(':id_enfermero', $data['id_enfermero']);
+$stmt->bindValue(':nivel_urgencia', $data['nivel_urgencia'] ?? 1);
+$stmt->bindValue(':estado_triaje', $data['estado_triaje'] ?? 'Completado');
+$stmt->bindValue(':temperatura', $data['temperatura'] ?? null);
+$stmt->bindValue(':presion_arterial', $data['presion_arterial'] ?? null);
+$stmt->bindValue(':frecuencia_cardiaca', $data['frecuencia_cardiaca'] ?? null);
+$stmt->bindValue(':frecuencia_respiratoria', $data['frecuencia_respiratoria'] ?? null);
+$stmt->bindValue(':saturacion_oxigeno', $data['saturacion_oxigeno'] ?? null);
+$stmt->bindValue(':peso', $data['peso'] ?? null);
+$stmt->bindValue(':talla', $data['talla'] ?? null);
+$stmt->bindValue(':imc', $imc);
+$stmt->bindValue(':observaciones', $data['observaciones'] ?? null);
 
         $stmt->execute();
         $triageId = $db->lastInsertId();
@@ -1913,22 +1915,23 @@ $app->get('/api/citas/con-triaje', function (Request $request, Response $respons
         $sql = "SELECT 
                     c.id_cita,
                     c.fecha_hora,
-                    c.motivo_consulta,
-                    CONCAT(p.nombres, ' ', p.apellidos) as nombre_paciente,
-                    p.cedula as cedula_paciente,
+                    c.motivo,
+                    CONCAT(pu.nombres, ' ', pu.apellidos) as nombre_paciente,
+                    pu.cedula as cedula_paciente,
                     CONCAT(u.nombres, ' ', u.apellidos) as nombre_medico,
                     s.nombre_sucursal,
                     e.nombre_especialidad,
-                    t.fecha_registro as fecha_triaje,
+                    t.fecha_hora as fecha_triaje,
                     t.nivel_urgencia
                 FROM citas c
                 INNER JOIN pacientes p ON c.id_paciente = p.id_paciente
+                INNER JOIN usuarios pu ON p.id_usuario = pu.id_usuario
                 INNER JOIN doctores d ON c.id_doctor = d.id_doctor
                 INNER JOIN usuarios u ON d.id_usuario = u.id_usuario
                 INNER JOIN sucursales s ON c.id_sucursal = s.id_sucursal
                 INNER JOIN especialidades e ON d.id_especialidad = e.id_especialidad
                 INNER JOIN triage t ON c.id_cita = t.id_cita
-                WHERE c.estado_cita IN ('Confirmada', 'En curso', 'Completada')
+                WHERE c.estado IN ('Confirmada', 'En curso', 'Completada')
                 AND t.estado_triaje = 'Completado'
                 ORDER BY c.fecha_hora DESC";
 
@@ -1945,7 +1948,7 @@ $app->get('/api/citas/con-triaje', function (Request $request, Response $respons
                 'cedulaPaciente' => $cita['cedula_paciente'],
                 'nombreMedico' => $cita['nombre_medico'],
                 'fechaHora' => $cita['fecha_hora'],
-                'motivoConsulta' => $cita['motivo_consulta'],
+                'motivoConsulta' => $cita['motivo'],
                 'nombreSucursal' => $cita['nombre_sucursal'],
                 'nombreEspecialidad' => $cita['nombre_especialidad'],
                 'fechaTriaje' => $cita['fecha_triaje'],
@@ -1978,7 +1981,7 @@ $app->get('/api/triaje/cita/{id_cita}', function (Request $request, Response $re
 
         $sql = "SELECT t.*, 
                 CONCAT(u.nombres, ' ', u.apellidos) as nombre_enfermero,
-                DATE_FORMAT(t.fecha_registro, '%Y-%m-%d %H:%i:%s') as fecha_registro_formatted
+                DATE_FORMAT(t.fecha_hora, '%Y-%m-%d %H:%i:%s') as fecha_registro_formatted
                 FROM triage t
                 LEFT JOIN usuarios u ON t.id_enfermero = u.id_usuario
                 WHERE t.id_cita = :id_cita";
