@@ -1539,7 +1539,41 @@ $app->get('/api/citas/{id_cita}/completa', function (Request $request, Response 
         return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
     }
 });
+// Endpoint de prueba simplificado - Añadir a index.php
+$app->get('/api/citas/test', function (Request $request, Response $response) {
+    try {
+        $db = App\Config\Database::getConnection();
 
+        // Consulta simple primero
+        $sql = "SELECT COUNT(*) as total FROM citas";
+        $stmt = $db->prepare($sql);
+        $stmt->execute();
+        $totalCitas = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        $sql2 = "SELECT COUNT(*) as total FROM triage";
+        $stmt2 = $db->prepare($sql2);
+        $stmt2->execute();
+        $totalTriage = $stmt2->fetch(PDO::FETCH_ASSOC);
+
+        $response->getBody()->write(json_encode([
+            'success' => true,
+            'message' => 'Test exitoso',
+            'data' => [
+                'total_citas' => $totalCitas['total'],
+                'total_triage' => $totalTriage['total']
+            ]
+        ]));
+
+        return $response->withHeader('Content-Type', 'application/json');
+
+    } catch (Exception $e) {
+        $response->getBody()->write(json_encode([
+            'success' => false,
+            'message' => 'Error en test: ' . $e->getMessage()
+        ]));
+        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+    }
+});
 // ============ ENDPOINTS ADICIONALES ÚTILES ============
 
 // Obtener lista de enfermeros (para el triaje)
@@ -1724,35 +1758,43 @@ $app->get('/api/citas/estadisticas', function (Request $request, Response $respo
         return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
     }
 });
-// Obtener citas que no tienen triaje registrado
+// Endpoint CORREGIDO para obtener citas pendientes de triaje
 $app->get('/api/citas/pendientes-triaje', function (Request $request, Response $response) {
     try {
         $db = App\Config\Database::getConnection();
 
+        // ✅ CONSULTA CORREGIDA - Con JOINs correctos para obtener nombres
         $sql = "SELECT 
                     c.id_cita,
                     c.fecha_hora,
-                    c.motivo_consulta,
-                    CONCAT(p.nombres, ' ', p.apellidos) as nombre_paciente,
-                    p.cedula as cedula_paciente,
-                    CONCAT(u.nombres, ' ', u.apellidos) as nombre_medico,
+                    c.motivo,
+                    c.estado,
+                    CONCAT(up.nombres, ' ', up.apellidos) as nombre_paciente,
+                    up.cedula as cedula_paciente,
+                    CONCAT(um.nombres, ' ', um.apellidos) as nombre_medico,
                     s.nombre_sucursal,
                     e.nombre_especialidad
                 FROM citas c
                 INNER JOIN pacientes p ON c.id_paciente = p.id_paciente
+                INNER JOIN usuarios up ON p.id_usuario = up.id_usuario
                 INNER JOIN doctores d ON c.id_doctor = d.id_doctor
-                INNER JOIN usuarios u ON d.id_usuario = u.id_usuario
+                INNER JOIN usuarios um ON d.id_usuario = um.id_usuario
                 INNER JOIN sucursales s ON c.id_sucursal = s.id_sucursal
                 INNER JOIN especialidades e ON d.id_especialidad = e.id_especialidad
                 LEFT JOIN triage t ON c.id_cita = t.id_cita
-                WHERE c.estado_cita IN ('Confirmada', 'En curso')
+                WHERE c.estado IN ('Confirmada', 'Pendiente')
                 AND t.id_triage IS NULL
-                AND c.fecha_hora >= CURDATE()
+                AND DATE(c.fecha_hora) >= CURDATE() - INTERVAL 3 DAY
                 ORDER BY c.fecha_hora ASC";
+
+        error_log("=== EJECUTANDO CONSULTA TRIAJE ===");
+        error_log("SQL: " . $sql);
 
         $stmt = $db->prepare($sql);
         $stmt->execute();
         $citas = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        error_log("Citas encontradas: " . count($citas));
 
         // Formatear respuesta
         $citasFormateadas = [];
@@ -1763,21 +1805,37 @@ $app->get('/api/citas/pendientes-triaje', function (Request $request, Response $
                 'cedulaPaciente' => $cita['cedula_paciente'],
                 'nombreMedico' => $cita['nombre_medico'],
                 'fechaHora' => $cita['fecha_hora'],
-                'motivoConsulta' => $cita['motivo_consulta'],
+                'motivoConsulta' => $cita['motivo'] ?? 'Sin especificar',
                 'nombreSucursal' => $cita['nombre_sucursal'],
-                'nombreEspecialidad' => $cita['nombre_especialidad']
+                'nombreEspecialidad' => $cita['nombre_especialidad'],
+                'estadoCita' => $cita['estado']
             ];
         }
 
         $response->getBody()->write(json_encode([
             'success' => true,
             'message' => 'Citas pendientes de triaje obtenidas exitosamente',
-            'data' => $citasFormateadas
+            'data' => $citasFormateadas,
+            'total' => count($citasFormateadas)
         ]));
 
         return $response->withHeader('Content-Type', 'application/json');
 
+    } catch (PDOException $e) {
+        error_log("❌ Error PDO en triaje: " . $e->getMessage());
+        error_log("Código error: " . $e->getCode());
+        
+        $response->getBody()->write(json_encode([
+            'success' => false,
+            'message' => 'Error de base de datos en triaje',
+            'error_code' => $e->getCode(),
+            'error_details' => $e->getMessage()
+        ]));
+        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        
     } catch (Exception $e) {
+        error_log("❌ Error general en triaje: " . $e->getMessage());
+        
         $response->getBody()->write(json_encode([
             'success' => false,
             'message' => 'Error al obtener citas pendientes de triaje: ' . $e->getMessage()
