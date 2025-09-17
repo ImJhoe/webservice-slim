@@ -1163,48 +1163,6 @@ $app->post('/api/triaje', function (Request $request, Response $response) {
     }
 });
 
-// Obtener triaje por cita
-$app->get('/api/triaje/cita/{id_cita}', function (Request $request, Response $response, $args) {
-    try {
-        $id_cita = $args['id_cita'];
-        $db = App\Config\Database::getConnection();
-
-        $sql = "SELECT t.*, 
-                CONCAT(u.nombres, ' ', u.apellidos) as nombre_enfermero
-                FROM triage t
-                LEFT JOIN usuarios u ON t.id_enfermero = u.id_usuario
-                WHERE t.id_cita = :id_cita";
-
-        $stmt = $db->prepare($sql);
-        $stmt->bindParam(':id_cita', $id_cita);
-        $stmt->execute();
-        $triaje = $stmt->fetch();
-
-        if (!$triaje) {
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'message' => 'No se encontró triaje para esta cita'
-            ]));
-            return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
-        }
-
-        $response->getBody()->write(json_encode([
-            'success' => true,
-            'message' => 'Triaje obtenido exitosamente',
-            'data' => $triaje
-        ]));
-
-        return $response->withHeader('Content-Type', 'application/json');
-
-    } catch (Exception $e) {
-        $response->getBody()->write(json_encode([
-            'success' => false,
-            'message' => 'Error al obtener triaje: ' . $e->getMessage()
-        ]));
-        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
-    }
-});
-
 // ============ 2. CONSULTAS MÉDICAS - DIAGNÓSTICO (Lista Cotejo #2) ============
 
 // Crear consulta médica con diagnóstico
@@ -1447,64 +1405,6 @@ $app->get('/api/tratamientos/consulta/{id_consulta}', function (Request $request
     }
 });
 
-// ============ 4. RECETAS MÉDICAS (Lista Cotejo #4) ============
-
-// Crear receta médica
-$app->post('/api/recetas', function (Request $request, Response $response) {
-    try {
-        $data = json_decode($request->getBody()->getContents(), true);
-        $db = App\Config\Database::getConnection();
-
-        // Validaciones básicas
-        if (empty($data['id_consulta']) || empty($data['medicamentos'])) {
-            $response->getBody()->write(json_encode([
-                'success' => false,
-                'message' => 'ID de consulta y medicamentos son requeridos'
-            ]));
-            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
-        }
-
-        $sql = "INSERT INTO recetas_medicas (
-            id_consulta, medicamentos, instrucciones, fecha_emision,
-            fecha_vencimiento, observaciones
-        ) VALUES (
-            :id_consulta, :medicamentos, :instrucciones, :fecha_emision,
-            :fecha_vencimiento, :observaciones
-        )";
-
-        $stmt = $db->prepare($sql);
-        $stmt->bindParam(':id_consulta', $data['id_consulta']);
-        $stmt->bindParam(':medicamentos', $data['medicamentos']);
-        $stmt->bindParam(':instrucciones', $data['instrucciones']);
-        $stmt->bindParam(':fecha_emision', $data['fecha_emision'] ?? date('Y-m-d'));
-        $stmt->bindParam(':fecha_vencimiento', $data['fecha_vencimiento']);
-        $stmt->bindParam(':observaciones', $data['observaciones']);
-
-        $stmt->execute();
-        $recetaId = $db->lastInsertId();
-
-        // Obtener la receta creada
-        $stmtGet = $db->prepare("SELECT * FROM recetas_medicas WHERE id_receta = :id");
-        $stmtGet->bindParam(':id', $recetaId);
-        $stmtGet->execute();
-        $receta = $stmtGet->fetch();
-
-        $response->getBody()->write(json_encode([
-            'success' => true,
-            'message' => 'Receta médica registrada exitosamente',
-            'data' => $receta
-        ]));
-
-        return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
-
-    } catch (Exception $e) {
-        $response->getBody()->write(json_encode([
-            'success' => false,
-            'message' => 'Error al registrar receta médica: ' . $e->getMessage()
-        ]));
-        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
-    }
-});
 
 // Obtener recetas por consulta
 $app->get('/api/recetas/consulta/{id_consulta}', function (Request $request, Response $response, $args) {
