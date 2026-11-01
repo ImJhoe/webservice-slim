@@ -10,7 +10,7 @@
         "slim/slim": "^4.14",
         "slim/psr7": "^1.7",
         "php-di/php-di": "^6.4",
-        "monolog/monolog": "^2.10",
+        "monolog/monolog": "^3.12",
         "firebase/php-jwt": "^6.11",
         "respect/validation": "^2.3"
     },
