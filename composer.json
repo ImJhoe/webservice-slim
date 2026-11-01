@@ -9,7 +9,7 @@
         "ext-json": "*",
         "slim/slim": "^4.14",
         "slim/psr7": "^1.7",
-        "php-di/php-di": "^6.4",
+        "php-di/php-di": "^7.1",
         "monolog/monolog": "^2.10",
         "firebase/php-jwt": "^6.11",
         "respect/validation": "^2.3"
